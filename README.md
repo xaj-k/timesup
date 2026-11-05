@@ -121,6 +121,12 @@ To try changes on your computer first, run `python3 -m http.server` in this fold
 
 Any other static host with HTTPS works too, such as [Netlify Drop](https://app.netlify.com/drop).
 
+## Speech check (a trial for reading practice)
+
+`speech-test.html`, at https://xaj-k.github.io/timesup/speech-test.html, checks how well a device's speech recognition understands a child reading 20 words out loud: sight words, and phonics words with the sound pattern highlighted. The words come from the class's phonics homework packet (`reading.js`). The page shows the device's Android and Chrome versions, what it heard for each word, and results to copy or send. It isn't part of the app yet, and it saves nothing.
+
+Chrome sends the audio to Google to recognize it, unless the device can recognize speech itself (newer Chrome), which the page offers when it's available. Words that sound the same count as right: "two" heard as "to" or "2" is fine.
+
 ## Files
 
 - `index.html`: the four screens (setup, quiz, results, progress)
@@ -128,9 +134,10 @@ Any other static host with HTTPS works too, such as [Netlify Drop](https://app.n
 - `quiz.js`: the quiz rules (which facts, answer choices, weak-spots rounds, scoring), with no page code
 - `players.js`: players and saved history
 - `insights.js`: what the history says (fact levels, trends, suggestions), with no page code
+- `reading.js`: sight words and phonics words, and matching what speech recognition heard; `speech-test.html` and `speech-test.js`: the speech check page
 - `app.js`: screens, timer, sound effects and the progress report
 - `manifest.webmanifest`, `sw.js`, `pwa.js`, `icons/`: what makes it installable and work offline
 - `fonts/`: Lilita One and Andika (SIL Open Font License; see the `OFL-*.txt` files)
-- `test/index.html`: open it in a browser to run the tests for `quiz.js` and `insights.js`
+- `test/index.html`: open it in a browser to run the tests for `quiz.js`, `insights.js` and `reading.js`
 
 The lists of choices (tables, range, time limits, round lengths) and the default settings are at the top of `quiz.js`.

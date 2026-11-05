@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Speech check</title>
+  <meta name="description" content="Checks how well this device's speech recognition understands a child reading words out loud.">
+  <meta name="theme-color" content="#f3f6fb" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0f161b" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="fonts/fonts.css">
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .speech { max-width: 720px; }
+    .speech .brand > div { flex: 1 1 auto; min-width: 0; }
+    .speech .brand { margin-bottom: 20px; }
+    .speech .screen { gap: 16px; }
+    .speech p { margin: 0; }
+    .facts { display: grid; gap: 4px; margin: 0; font-size: 15px; }
+    .facts div { display: flex; flex-wrap: wrap; gap: 0 8px; }
+    .facts dt { color: var(--ink-soft); font-weight: 700; }
+    .facts dd { margin: 0; }
+    .check-local { display: flex; align-items: center; gap: 10px; font-weight: 700; cursor: pointer; }
+    .check-local input { width: 22px; height: 22px; accent-color: var(--pen); }
+    .problem { color: var(--wrong-text); font-weight: 700; }
+    .speech-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .speech-kind { color: var(--ink-soft); font-weight: 700; }
+    .speech-word { font-size: clamp(64px, min(20vw, 18vh), 140px); }
+    .speech-word .sound-part { color: var(--sun); text-decoration: underline; text-decoration-thickness: 0.08em; text-underline-offset: 0.12em; }
+    .listen { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 28px; color: var(--chalk-soft); font-weight: 700; }
+    .listen-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--time-low); }
+    .listen[hidden] { display: none !important; }
+    .listen:not([hidden]) .listen-dot { animation: pulse 1s ease-in-out infinite; }
+    @keyframes pulse { 50% { transform: scale(0.6); opacity: 0.5; } }
+    .heard { min-height: 1.4em; color: var(--ink-soft); text-align: center; }
+    .speech .actions .btn { flex: 1 1 140px; font-size: 22px; }
+    .result-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+    .result-list li { display: grid; gap: 2px; padding: 10px 14px; border-radius: var(--radius-sm); background: var(--card-sunk); }
+    .result-word { font-family: var(--font-display); font-size: 22px; }
+    .result-note { color: var(--ink-soft); font-size: 15px; }
+    .result-list .is-ok .result-word::before { content: "✓ "; color: var(--right-text); }
+    .result-list .is-miss .result-word::before { content: "✗ "; color: var(--wrong-text); }
+    #results-text { width: 100%; min-height: 160px; font: 13px/1.4 ui-monospace, monospace; color: var(--ink); background: var(--card-sunk); border: 1px solid var(--rule); border-radius: var(--radius-sm); padding: 10px; }
+  </style>
+</head>
+<body>
+  <div class="app speech">
+    <header class="brand">
+      <span class="brand-mark" aria-hidden="true">×</span>
+      <div>
+        <h1 class="brand-name">Speech check</h1>
+        <p class="brand-tag">Can this device hear your child read?</p>
+      </div>
+    </header>
+
+    <!-- Before starting: what this is, and what this device can do -->
+    <section class="screen" id="intro">
+      <div class="panel">
+        <p>Your child reads 20 words out loud, one at a time: sight words, and phonics words with the sound to practice highlighted. The page listens and shows what it heard, and at the end you get the results to send back.</p>
+        <p class="field-help">Chrome sends the audio to Google to recognize it, unless you choose to recognize on this device below. Nothing is saved after you close the page.</p>
+        <dl class="facts" id="facts">
+          <div><dt>This device</dt><dd id="fact-device">Checking…</dd></div>
+          <div><dt>Speech recognition</dt><dd id="fact-speech">Checking…</dd></div>
+          <div><dt>Recognizing on this device</dt><dd id="fact-local">Checking…</dd></div>
+        </dl>
+        <label class="check-local" id="local-row" hidden><input type="checkbox" id="local"> Recognize on this device (no audio sent)</label>
+        <button type="button" class="btn-small btn-soft" id="install-local" hidden>Download English for this device</button>
+        <p class="problem" id="unsupported" hidden></p>
+        <button type="button" class="btn btn-go" id="begin">Start</button>
+      </div>
+    </section>
+
+    <!-- One word at a time -->
+    <section class="screen" id="run" hidden>
+      <div class="speech-head">
+        <p class="progress-label" id="count"></p>
+        <p class="speech-kind" id="kind"></p>
+      </div>
+      <div class="board">
+        <p class="question speech-word" id="word" aria-live="polite"></p>
+        <p class="listen" id="listening" hidden><span class="listen-dot" aria-hidden="true"></span>Listening…</p>
+      </div>
+      <p class="feedback" id="status" role="status"></p>
+      <p class="heard" id="heard"></p>
+      <div class="actions">
+        <button type="button" class="btn btn-quiet" id="again">Try again</button>
+        <button type="button" class="btn btn-quiet" id="hear">Hear it</button>
+        <button type="button" class="btn btn-go" id="next">Next</button>
+      </div>
+    </section>
+
+    <!-- Results to send back -->
+    <section class="screen" id="done" hidden>
+      <div class="panel">
+        <h2 class="result-title">All done!</h2>
+        <p class="result-score" id="score"></p>
+        <ul class="result-list" id="list"></ul>
+        <div class="actions">
+          <button type="button" class="btn btn-go" id="share" hidden>Send results</button>
+          <button type="button" class="btn btn-quiet" id="copy">Copy results</button>
+          <button type="button" class="btn btn-quiet" id="restart">Start over</button>
+        </div>
+        <p class="field-help" id="copied" aria-live="polite"></p>
+        <label class="label" for="results-text">Results</label>
+        <textarea id="results-text" readonly></textarea>
+      </div>
+    </section>
+  </div>
+
+  <script src="reading.js"></script>
+  <script src="speech-test.js"></script>
+</body>
+</html>

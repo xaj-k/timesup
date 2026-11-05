@@ -1,5 +1,5 @@
 /*
- * Tests for quiz.js and insights.js. Open test/index.html in a browser to run them.
+ * Tests for quiz.js, insights.js and reading.js. Open test/index.html in a browser to run them.
  */
 (function (global) {
   'use strict';
@@ -366,6 +366,41 @@
     same(slow(6, 4).weight, 6, 'right but slow comes up more than right and quick');
     const counts = Insights.focusCounts(Insights.analyze(rounds), [[7, 8], [3, 3], [9, 9]]);
     same(counts, { mastered: 0, learning: 1, practice: 1, new: 1 }, 'levels of the facts in play');
+  });
+
+  // ---------- reading ----------
+
+  const Reading = global.Reading;
+
+  test('reading: a word counts when the recognizer hears it, or a word that sounds the same', () => {
+    same(Reading.heardIt('said', ['said']), 'said', 'the word itself');
+    same(Reading.heardIt('said', ['sad', 'um said']), 'um said', 'among other words');
+    same(Reading.heardIt('two', ['2']), '2', 'written as a digit');
+    same(Reading.heardIt('two', ['to']), 'to', 'a word that sounds the same');
+    same(Reading.heardIt('there', ["They're"]), "They're", 'capitals and apostrophes');
+    same(Reading.heardIt('I', ['eye']), 'eye', 'the word I');
+    same(Reading.heardIt('in', ['into']), null, 'a longer word is a different word');
+    same(Reading.heardIt('ship', ['sheep', 'chip']), null, 'a near miss is a miss');
+    same(Reading.heardIt('said', []), null, 'nothing heard');
+  });
+
+  test('reading: the sound pattern is marked inside its word', () => {
+    const show = (parts) => parts.map((p) => (p.mark ? `[${p.text}]` : p.text)).join('');
+    same(show(Reading.mark('ship', 'sh')), '[sh]ip', 'sh');
+    same(show(Reading.mark('duck', 'ck')), 'du[ck]', 'ck');
+    same(show(Reading.mark('cone', 'silent e')), 'c[o]n[e]', 'silent e marks the vowel and the e');
+    same(show(Reading.mark('said', null)), 'said', 'a sight word has no mark');
+  });
+
+  test('reading: the speech check has 20 different words, 72 sight words in all', () => {
+    const items = Reading.speechCheckItems();
+    same(items.length, 20, 'items');
+    same(new Set(items.map((i) => i.word)).size, 20, 'all different');
+    same(items.filter((i) => i.sound).length, 8, 'phonics words');
+    same(Reading.SIGHT_WORDS.length, 72, 'sight words');
+    for (const group of Reading.PHONICS) {
+      for (const word of group.words) check(Reading.mark(word, group.sound).some((p) => p.mark), `${word} should show ${group.sound}`);
+    }
   });
 
   const failed = results.filter((r) => !r.ok).length;
