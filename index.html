@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Times Up</title>
+  <meta name="description" content="A multiplication quiz for kids. Pick the right answer from four tiles, with or without a timer.">
+  <!-- Installing on a phone or tablet: see manifest.webmanifest, sw.js and pwa.js -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#f3f6fb" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0f161b" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="icons/icon-32.png" sizes="32x32" type="image/png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-title" content="Times Up">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="stylesheet" href="fonts/fonts.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+
+    <!-- Setup: which facts, which mode -->
+    <section class="screen setup" id="setup" aria-labelledby="setup-title">
+      <header class="brand">
+        <span class="brand-mark" aria-hidden="true">×</span>
+        <div>
+          <h1 class="brand-name" id="setup-title">Times Up!</h1>
+          <p class="brand-tag">Multiplication practice</p>
+        </div>
+        <button type="button" class="btn-small btn-soft install-btn" id="install" hidden>Install app</button>
+      </header>
+      <p class="install-help" id="install-help" hidden>On an iPhone or iPad, tap the Share button, then “Add to Home Screen”.</p>
+
+      <form class="setup-layout" id="settings-form" novalidate>
+        <div class="panel settings">
+          <div class="field" role="group" aria-labelledby="player-label">
+            <h2 class="label" id="player-label">Who's playing?</h2>
+            <div class="pills" id="player-list">
+              <button type="button" class="pill-add" id="add-player-open">+ New player</button>
+            </div>
+            <div class="add-player" id="add-player" hidden>
+              <label class="sr-only" for="new-player-name">First name</label>
+              <input type="text" id="new-player-name" maxlength="24" autocomplete="off" autocapitalize="words" spellcheck="false" placeholder="First name">
+              <button type="button" class="btn-small" id="add-player-save">Add</button>
+              <button type="button" class="text-btn" id="add-player-cancel">Cancel</button>
+            </div>
+            <div class="player-status">
+              <p class="field-help" id="player-help" aria-live="polite">Loading players…</p>
+              <button type="button" class="text-btn" id="open-report" hidden>See progress</button>
+            </div>
+          </div>
+
+          <div class="field" role="group" aria-labelledby="tables-label">
+            <div class="field-head">
+              <h2 class="label" id="tables-label">Times tables</h2>
+              <div class="quick-picks">
+                <button type="button" class="text-btn" id="tables-all">Select all</button>
+                <button type="button" class="text-btn" id="tables-none">Clear</button>
+              </div>
+            </div>
+            <div class="chips" id="table-chips"></div>
+          </div>
+
+          <div class="field" role="group" aria-labelledby="multiply-label">
+            <h2 class="label" id="multiply-label">Multiplied by</h2>
+            <div class="pills">
+              <label class="pill"><input type="radio" name="multiplyBy" value="same" id="multiply-same"><span>The same numbers</span></label>
+              <label class="pill"><input type="radio" name="multiplyBy" value="range" id="multiply-range"><span>A range</span></label>
+            </div>
+            <div class="range-row" id="range-row" hidden>
+              <label class="range-word" for="range-from">From</label>
+              <span class="select-box"><select id="range-from"></select></span>
+              <label class="range-word" for="range-to">to</label>
+              <span class="select-box"><select id="range-to"></select></span>
+            </div>
+            <p class="field-help" id="multiply-help"></p>
+          </div>
+
+          <div class="field" role="radiogroup" aria-labelledby="focus-label">
+            <h2 class="label" id="focus-label">Focus</h2>
+            <div class="pills">
+              <label class="pill"><input type="radio" name="focus" value="all" id="focus-all"><span>Everything</span></label>
+              <label class="pill"><input type="radio" name="focus" value="weak" id="focus-weak"><span>Weak spots</span></label>
+            </div>
+            <p class="field-help" id="focus-help"></p>
+          </div>
+
+          <div class="field" role="radiogroup" aria-labelledby="mode-label">
+            <h2 class="label" id="mode-label">Mode</h2>
+            <div class="modes">
+              <label class="mode">
+                <input type="radio" name="mode" value="relaxed" id="mode-relaxed">
+                <span class="mode-body">
+                  <span class="mode-name">Relaxed</span>
+                  <span class="mode-desc">No timer. Take as long as you need.</span>
+                </span>
+              </label>
+              <label class="mode">
+                <input type="radio" name="mode" value="timed" id="mode-timed">
+                <span class="mode-body">
+                  <span class="mode-name">Beat the clock</span>
+                  <span class="mode-desc">Answer each question before time runs out.</span>
+                </span>
+              </label>
+            </div>
+          </div>
+
+          <div class="field" role="radiogroup" aria-labelledby="seconds-label" id="seconds-field" hidden>
+            <h2 class="label" id="seconds-label">Time per question</h2>
+            <div class="pills" id="seconds-pills"></div>
+          </div>
+
+          <div class="field" role="radiogroup" aria-labelledby="count-label">
+            <h2 class="label" id="count-label">Questions per round</h2>
+            <div class="pills" id="count-pills"></div>
+          </div>
+        </div>
+
+        <section class="panel preview" aria-labelledby="chart-label">
+          <h2 class="label" id="chart-label">In this quiz</h2>
+          <div class="chart" id="chart" aria-hidden="true"></div>
+          <p class="chart-note">Shaded facts can come up, in either order: 6 × 8 or 8 × 6.</p>
+          <p class="chart-note chart-key" id="chart-key" hidden><span class="key-dot" aria-hidden="true"></span>Needs practice, so it comes up more often</p>
+        </section>
+
+        <div class="start-area">
+          <p class="summary" id="summary" aria-live="polite"></p>
+          <button type="submit" class="btn btn-go" id="start">Start</button>
+        </div>
+      </form>
+    </section>
+
+    <!-- Quiz: question on the board, four answer tiles -->
+    <section class="screen game" id="game" aria-label="Quiz" hidden>
+      <div class="game-bar">
+        <button type="button" class="icon-btn quit" id="quit" aria-label="Stop and go back to settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>
+        </button>
+        <p class="progress-label" id="progress-label"></p>
+        <p class="score">
+          <svg class="score-star" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l2.65 6.36 6.86.55-5.23 4.48 1.6 6.7L12 17l-5.88 3.59 1.6-6.7-5.23-4.48 6.86-.55z"/></svg>
+          <span class="sr-only">Score:</span>
+          <span id="score">0</span>
+        </p>
+        <button type="button" class="icon-btn" id="sound" aria-label="Sound effects" aria-pressed="true">
+          <svg class="icon-sound-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.2L12 5.5v13l-4.8-4H4z"/><path d="M15.6 9.2a4 4 0 0 1 0 5.6M18.3 6.6a7.6 7.6 0 0 1 0 10.8"/></svg>
+          <svg class="icon-sound-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.2L12 5.5v13l-4.8-4H4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></svg>
+        </button>
+        <ol class="progress-cells" id="progress-cells" aria-hidden="true"></ol>
+      </div>
+
+      <div class="board">
+        <p class="question" aria-live="polite">
+          <span class="question-text" id="question-text" aria-hidden="true"><span id="q-a"></span><span class="times">×</span><span id="q-b"></span></span>
+          <span class="sr-only" id="question-sr"></span>
+        </p>
+        <div class="timer" id="timer" hidden>
+          <svg class="timer-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="13.5" r="7.5"/><path d="M12 13.5V9.8M9.5 2.8h5M12 2.8V6"/></svg>
+          <div class="timer-track"><div class="timer-fill" id="timer-fill"></div></div>
+          <span class="timer-secs" id="timer-secs" aria-hidden="true"></span>
+        </div>
+      </div>
+
+      <div class="tiles" id="tiles"></div>
+
+      <p class="feedback" id="feedback" role="status"></p>
+    </section>
+
+    <!-- Results: stars, stats, and the facts to practice -->
+    <section class="screen results" id="results" aria-labelledby="result-title" hidden>
+      <div class="panel result-panel">
+        <div class="stars" id="stars" aria-hidden="true">
+          <svg class="star" viewBox="0 0 24 24"><path d="M12 2.5l2.65 6.36 6.86.55-5.23 4.48 1.6 6.7L12 17l-5.88 3.59 1.6-6.7-5.23-4.48 6.86-.55z"/></svg>
+          <svg class="star" viewBox="0 0 24 24"><path d="M12 2.5l2.65 6.36 6.86.55-5.23 4.48 1.6 6.7L12 17l-5.88 3.59 1.6-6.7-5.23-4.48 6.86-.55z"/></svg>
+          <svg class="star" viewBox="0 0 24 24"><path d="M12 2.5l2.65 6.36 6.86.55-5.23 4.48 1.6 6.7L12 17l-5.88 3.59 1.6-6.7-5.23-4.48 6.86-.55z"/></svg>
+        </div>
+        <h2 class="result-title" id="result-title"></h2>
+        <p class="result-score" id="result-score"></p>
+        <p class="save-note" id="save-note" aria-live="polite"></p>
+        <dl class="stats">
+          <div class="stat"><dt>Right</dt><dd id="stat-right"></dd></div>
+          <div class="stat"><dt>Best streak</dt><dd id="stat-streak"></dd></div>
+          <div class="stat"><dt>Avg. time</dt><dd id="stat-time"></dd></div>
+        </dl>
+        <div class="review" id="review">
+          <h3 class="label">Practice these</h3>
+          <ul class="review-list" id="review-list"></ul>
+        </div>
+        <div class="actions">
+          <button type="button" class="btn btn-go" id="again">Play again</button>
+          <button type="button" class="btn btn-quiet" id="change">Change settings</button>
+        </div>
+        <button type="button" class="text-btn" id="results-report" hidden>See progress</button>
+      </div>
+    </section>
+
+    <!-- Progress: what one player knows by heart, what trips them up, and how it's going -->
+    <section class="screen report" id="report" aria-labelledby="report-title" hidden>
+      <header class="report-head">
+        <button type="button" class="icon-btn" id="report-back" aria-label="Back to settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 5.5L8 12l6.5 6.5"/></svg>
+        </button>
+        <div class="report-heading">
+          <h2 class="report-title" id="report-title">Progress</h2>
+          <p class="report-sub" id="report-sub"></p>
+        </div>
+        <button type="button" class="icon-btn" id="report-print" aria-label="Print this report" hidden>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 9V4h10v5M7 17H5a1.5 1.5 0 0 1-1.5-1.5v-5A1.5 1.5 0 0 1 5 9h14a1.5 1.5 0 0 1 1.5 1.5v5A1.5 1.5 0 0 1 19 17h-2M7 14h10v6H7z"/></svg>
+        </button>
+      </header>
+
+      <p class="panel report-note" id="report-note" aria-live="polite" hidden></p>
+
+      <div class="report-body" id="report-body" hidden>
+        <dl class="kpis" id="report-kpis"></dl>
+
+        <div class="report-grid">
+          <section class="panel" aria-labelledby="advice-title">
+            <h3 class="label" id="advice-title">What to practice next</h3>
+            <ul class="advice" id="report-advice"></ul>
+            <button type="button" class="btn btn-go" id="report-practice">Practice weak spots</button>
+          </section>
+
+          <section class="panel" aria-labelledby="tricky-title">
+            <h3 class="label" id="tricky-title">Trickiest facts</h3>
+            <ul class="tricky-list" id="tricky-list"></ul>
+          </section>
+
+          <section class="panel" aria-labelledby="map-title">
+            <h3 class="label" id="map-title">Times-table map</h3>
+            <div class="chart mastery" id="mastery-chart" aria-hidden="true"></div>
+            <ul class="legend" id="mastery-legend"></ul>
+            <p class="chart-detail" id="map-detail" aria-live="polite"></p>
+            <button type="button" class="text-btn view-toggle" id="map-list-toggle" aria-expanded="false" aria-controls="map-list">Show as a list</button>
+            <div class="map-list" id="map-list" hidden></div>
+          </section>
+
+          <section class="panel" aria-labelledby="trend-title">
+            <h3 class="label" id="trend-title">Over time</h3>
+            <p class="field-help" id="trend-unit"></p>
+            <div class="trends">
+              <figure class="trend">
+                <figcaption>Right answers</figcaption>
+                <div class="trend-plot" id="trend-right" tabindex="0" aria-label="Right answers over time. Use the arrow keys to step through."></div>
+              </figure>
+              <figure class="trend">
+                <figcaption>Typical time to answer</figcaption>
+                <div class="trend-plot" id="trend-time" tabindex="0" aria-label="Typical time to answer, over time. Use the arrow keys to step through."></div>
+              </figure>
+            </div>
+            <p class="chart-detail" id="trend-detail" aria-live="polite"></p>
+            <button type="button" class="text-btn view-toggle" id="trend-table-toggle" aria-expanded="false" aria-controls="trend-table-box">Show as a table</button>
+            <div class="table-box" id="trend-table-box" hidden>
+              <table class="trend-table">
+                <thead><tr><th scope="col" id="trend-table-when">Day</th><th scope="col">Questions</th><th scope="col">Right</th><th scope="col">Typical time</th></tr></thead>
+                <tbody id="trend-table-rows"></tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="panel rounds-panel" aria-labelledby="rounds-title">
+            <h3 class="label" id="rounds-title">Recent rounds</h3>
+            <ul class="round-list" id="round-list"></ul>
+          </section>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <script src="quiz.js"></script>
+  <script src="players.js"></script>
+  <script src="insights.js"></script>
+  <script src="app.js"></script>
+  <script src="pwa.js"></script>
+</body>
+</html>
