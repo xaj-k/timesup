@@ -28,9 +28,10 @@
   let store = null; // where player history is kept, once Players.openStore() answers
   let players = [];
   let storeProblem = '';
-  // playerId -> { status: 'loading' | 'ready' | 'failed', rounds, analysis, busy }
+  // playerId -> { status: 'loading' | 'ready' | 'failed', rounds, analyses (one per operation), overall, busy }
   const histories = new Map();
   let reportFor = null; // the player whose progress is on screen
+  let reportOp = 'multiply'; // which operation the progress report shows
   let trendPick = -1; // the point picked on the progress charts
 
   // ---------- small helpers for words and numbers ----------
@@ -70,6 +71,9 @@
     }
     return Insights.listOf(parts);
   }
+
+  const symbolOf = (operation) => Quiz.operationOf(operation).symbol;
+  const adding = () => settings.operation === 'add';
 
   // ---------- saved settings (best effort: storage can be blocked) ----------
 
@@ -188,6 +192,15 @@
     buildChart($('mastery-chart'));
   }
 
+  // Fills a chart with products or sums.
+  function labelChart(chart, operation) {
+    for (const node of chart.children) {
+      const { row, col } = node.dataset;
+      if (row === undefined && col === undefined) node.textContent = symbolOf(operation);
+      else if (row !== undefined && col !== undefined) node.textContent = Quiz.answerFor(Number(row), Number(col), operation);
+    }
+  }
+
   function pills(name, values, label) {
     return values.map((v) =>
       `<label class="pill"><input type="radio" name="${name}" value="${v}" id="${name}-${v}"><span>${label(v)}</span></label>`
@@ -221,7 +234,7 @@
       node.classList.toggle('is-on', rowOn && colOn);
       let weak = false;
       if (analysis && rowOn && colOn && row !== undefined && col !== undefined) {
-        const fact = analysis.facts.get(Quiz.factKey(Number(row), Number(col)));
+        const fact = analysis.facts.get(Quiz.factKey(Number(row), Number(col), settings.operation));
         weak = Boolean(fact) && fact.level === 'practice';
       }
       node.classList.toggle('is-weak', weak);
@@ -232,13 +245,17 @@
 
   function multiplyHelp() {
     if (settings.multiplyBy === 'range') {
-      return 'Each table you picked is multiplied by every number in this range, like 7 × 1 up to 7 × 10.';
+      return adding()
+        ? 'Each number you picked is added to every number in this range, like 7 + 1 up to 7 + 10.'
+        : 'Each table you picked is multiplied by every number in this range, like 7 × 1 up to 7 × 10.';
     }
     if (settings.tables.length === 1) {
       const t = settings.tables[0];
-      return `That's only ${t} × ${t}. To practice the whole ${t} times table, choose “A range”.`;
+      return adding()
+        ? `That's only ${t} + ${t}. To practice adding ${t} to other numbers, choose “A range”.`
+        : `That's only ${t} × ${t}. To practice the whole ${t} times table, choose “A range”.`;
     }
-    return 'Both numbers in each question come from the tables you picked.';
+    return `Both numbers in each question come from the ${adding() ? 'numbers' : 'tables'} you picked.`;
   }
 
   // Weak spots needs a named player with some history.
@@ -259,7 +276,9 @@
     if (!entry || entry.status === 'loading') return `Loading ${player.name}'s history…`;
     if (entry.status === 'failed') return `Weak spots can't load ${player.name}'s history right now.`;
     const analysis = analysisFor(player.id);
-    if (!analysis.totals.questions) return `Weak spots starts working after ${player.name} plays a round or two.`;
+    if (!analysis.totals.questions) {
+      return `Weak spots starts working after ${player.name} plays a round or two of ${Quiz.operationOf(settings.operation).name}.`;
+    }
     if (effectiveFocus() === 'all') return 'Every fact comes up equally often.';
     const counts = Insights.focusCounts(analysis, Quiz.factsFor(settings));
     if (counts.practice) {
@@ -273,6 +292,12 @@
   }
 
   function renderSetup() {
+    form.elements.operation.value = settings.operation;
+    $('tables-label').textContent = adding() ? 'Numbers' : 'Times tables';
+    $('multiply-label').textContent = adding() ? 'Added to' : 'Multiplied by';
+    const sign = symbolOf(settings.operation);
+    $('chart-note').textContent = `Shaded facts can come up, in either order: 6 ${sign} 8 or 8 ${sign} 6.`;
+    labelChart($('chart'), settings.operation);
     for (const box of form.elements.table) box.checked = settings.tables.includes(Number(box.value));
     form.elements.multiplyBy.value = settings.multiplyBy;
     $('range-from').value = String(settings.from);
@@ -301,9 +326,10 @@
       if (tricky) focusNote = ` (the ${tricky} that ${tricky === 1 ? 'needs practice comes' : 'need practice come'} up more)`;
     }
     $('summary').textContent = facts.length === 0
-      ? 'Pick at least one times table to start.'
+      ? `Pick at least one ${adding() ? 'number' : 'times table'} to start.`
       : `${player ? `${player.name}: ` : ''}` +
-        `${settings.count} questions from ${facts.length === 1 ? 'just 1 fact' : `${facts.length} different facts`}${focusNote}, ` +
+        `${settings.count} ${Quiz.operationOf(settings.operation).name} questions from ` +
+        `${facts.length === 1 ? 'just 1 fact' : `${facts.length} different facts`}${focusNote}, ` +
         (settings.timed ? `with ${settings.seconds} seconds for each.` : 'with no timer.');
     renderChart();
   }
@@ -317,6 +343,8 @@
       else to.value = from.value;
     }
     settings = Quiz.sanitizeSettings({
+      operation: settings.operation,
+      selections: settings.selections,
       tables: [...form.elements.table].filter((box) => box.checked).map((box) => Number(box.value)),
       multiplyBy: form.elements.multiplyBy.value,
       from: Number(from.value),
@@ -331,6 +359,18 @@
     });
     saveSettings();
     renderSetupState();
+  }
+
+  // Switching between multiplication and addition brings back that operation's own picks.
+  function switchOperation(operation) {
+    if (operation === settings.operation) return;
+    settings = Quiz.sanitizeSettings({ ...settings, ...settings.selections[operation], operation });
+    saveSettings();
+  }
+
+  function chooseOperation(operation) {
+    switchOperation(operation);
+    renderSetup();
   }
 
   function setAllTables(on) {
@@ -388,8 +428,8 @@
   function renderPlayerHelp() {
     $('player-help').textContent = playerHelp();
     const player = currentPlayer();
-    const analysis = player ? analysisFor(player.id) : null;
-    $('open-report').hidden = !(analysis && analysis.totals.questions);
+    const overall = player ? overallFor(player.id) : null;
+    $('open-report').hidden = !(overall && overall.questions);
   }
 
   function playerHelp() {
@@ -400,7 +440,7 @@
     const entry = histories.get(player.id);
     if (!entry || entry.status === 'loading') return `Loading ${player.name}'s history…`;
     if (entry.status === 'failed') return `${player.name}'s history couldn't load right now. New answers will still be saved.`;
-    const totals = analysisFor(player.id).totals;
+    const totals = overallFor(player.id);
     if (!totals.questions) return `${player.name} hasn't played yet. Every answer will be saved.`;
     return `${player.name} so far: ${plural(totals.rounds, 'round')}, ` +
       `${totals.questions} questions, ${percent(totals.right / totals.questions)} right.`;
@@ -420,7 +460,7 @@
     let entry = histories.get(id);
     if (entry && (entry.busy || (entry.status === 'ready' && !refresh))) return;
     if (!entry) {
-      entry = { status: 'loading', rounds: [], analysis: null, busy: false };
+      entry = { status: 'loading', rounds: [], analyses: {}, overall: null, busy: false };
       histories.set(id, entry);
     }
     entry.busy = true;
@@ -429,7 +469,8 @@
         (rounds) => {
           entry.rounds = mergeRounds(rounds, entry.rounds);
           entry.status = 'ready';
-          entry.analysis = null;
+          entry.analyses = {};
+          entry.overall = null;
         },
         () => { if (entry.status !== 'ready') entry.status = 'failed'; }
       )
@@ -456,15 +497,25 @@
     const entry = histories.get(record.playerId);
     if (!entry || entry.status !== 'ready') return;
     entry.rounds = mergeRounds([record], entry.rounds.filter((r) => r.id !== record.id));
-    entry.analysis = null;
+    entry.analyses = {};
+    entry.overall = null;
     historyChanged(record.playerId);
   }
 
-  function analysisFor(id) {
+  // What one operation's history says (multiplication and addition are kept apart).
+  function analysisFor(id, operation = settings.operation) {
     const entry = id ? histories.get(id) : null;
     if (!entry || entry.status !== 'ready') return null;
-    if (!entry.analysis) entry.analysis = Insights.analyze(entry.rounds);
-    return entry.analysis;
+    if (!entry.analyses[operation]) entry.analyses[operation] = Insights.analyze(entry.rounds, Date.now(), operation);
+    return entry.analyses[operation];
+  }
+
+  // Totals across both operations, for the line under the player's name.
+  function overallFor(id) {
+    const entry = id ? histories.get(id) : null;
+    if (!entry || entry.status !== 'ready') return null;
+    if (!entry.overall) entry.overall = Insights.overall(entry.rounds);
+    return entry.overall;
   }
 
   function historyChanged(id) {
@@ -511,7 +562,7 @@
         $('add-player-save').disabled = false;
       }
       players = [...players, player].sort(Players.byName);
-      histories.set(player.id, { status: 'ready', rounds: [], analysis: null, busy: false });
+      histories.set(player.id, { status: 'ready', rounds: [], analyses: {}, overall: null, busy: false });
       storeProblem = '';
     }
     closeAddPlayer();
@@ -528,7 +579,7 @@
 
   // What gets saved for each round. Answers are added as they happen.
   function newRecord(player, focus) {
-    const used = { tables: settings.tables.slice(), multiplyBy: settings.multiplyBy };
+    const used = { operation: settings.operation, tables: settings.tables.slice(), multiplyBy: settings.multiplyBy };
     if (settings.multiplyBy === 'range') Object.assign(used, { from: settings.from, to: settings.to });
     used.timeLimit = settings.timed ? settings.seconds : 0; // seconds per question; 0 means no timer
     used.count = settings.count;
@@ -600,6 +651,7 @@
       : Quiz.createRound(settings);
     round = {
       questions,
+      operation: settings.operation,
       seconds: settings.timed ? settings.seconds : 0,
       index: -1,
       score: 0,
@@ -618,6 +670,7 @@
     cells.style.setProperty('--count', round.questions.length);
     cells.innerHTML = '<li></li>'.repeat(round.questions.length);
     $('score').textContent = '0';
+    $('q-op').textContent = symbolOf(round.operation);
     $('timer').hidden = !round.seconds;
     showScreen('game');
     wake.on();
@@ -634,7 +687,7 @@
     const q = round.questions[round.index];
     $('q-a').textContent = q.a;
     $('q-b').textContent = q.b;
-    $('question-sr').textContent = `What is ${q.a} times ${q.b}?`;
+    $('question-sr').textContent = `What is ${q.a} ${Quiz.operationOf(round.operation).word} ${q.b}?`;
     $('progress-label').textContent = `Question ${round.index + 1} of ${round.questions.length}`;
     markProgress('is-current');
     setFeedback('', '');
@@ -703,7 +756,7 @@
       setFeedback(round.streak >= 3 ? `${praise} ${round.streak} in a row!` : praise, 'is-right');
       sound.right();
     } else {
-      setFeedback(`${timedOut ? "Time's up!" : 'Not quite.'} ${q.a} × ${q.b} = ${q.answer}`, 'is-wrong');
+      setFeedback(`${timedOut ? "Time's up!" : 'Not quite.'} ${q.a} ${symbolOf(round.operation)} ${q.b} = ${q.answer}`, 'is-wrong');
       if (timedOut) sound.timeUp();
       else sound.wrong();
     }
@@ -793,7 +846,7 @@
     const average = answered.reduce((sum, a) => sum + a.ms, 0) / (answered.length || 1);
     $('stat-time').textContent = answered.length ? `${secs(average)}s` : '-';
 
-    renderReview(done.answers.filter((a) => !a.right));
+    renderReview(done.answers.filter((a) => !a.right), done.operation);
     showSaveNote(done);
     const link = $('results-report');
     link.hidden = !done.player;
@@ -806,18 +859,18 @@
     $('again').focus({ preventScroll: true });
   }
 
-  function renderReview(misses) {
+  function renderReview(misses, operation) {
     const list = $('review-list');
     const seen = new Set();
     list.replaceChildren();
     for (const miss of misses) {
-      const key = Quiz.factKey(miss.a, miss.b);
+      const key = Quiz.factKey(miss.a, miss.b, operation);
       if (seen.has(key)) continue;
       seen.add(key);
       const item = document.createElement('li');
       const fact = document.createElement('span');
       fact.className = 'review-fact';
-      fact.textContent = `${miss.a} × ${miss.b} = ${miss.answer}`;
+      fact.textContent = `${miss.a} ${symbolOf(operation)} ${miss.b} = ${miss.answer}`;
       const note = document.createElement('span');
       note.className = 'review-note';
       note.textContent = miss.timedOut ? 'Time ran out' : `You picked ${miss.picked}`;
@@ -831,6 +884,7 @@
 
   function openReport(id) {
     reportFor = id;
+    reportOp = settings.operation;
     trendPick = -1;
     for (const [buttonId, panelId] of [['map-list-toggle', 'map-list'], ['trend-table-toggle', 'trend-table-box']]) {
       const button = $(buttonId);
@@ -858,7 +912,12 @@
     const entry = histories.get(player.id);
     const note = $('report-note');
     const body = $('report-body');
-    const analysis = analysisFor(player.id);
+    // Show the operation set up on the setup screen, or the one that's been played.
+    const played = overallFor(player.id) ? overallFor(player.id).operations : [];
+    if (played.length && !played.includes(reportOp)) reportOp = played[0];
+    $('report-ops').hidden = played.length < 2;
+    $(`report-op-${reportOp}`).checked = true;
+    const analysis = analysisFor(player.id, reportOp);
     let problem = '';
     if (!entry || entry.status === 'loading') problem = `Loading ${player.name}'s history…`;
     else if (entry.status === 'failed') problem = `${player.name}'s history couldn't load right now. Try again in a moment.`;
@@ -953,9 +1012,9 @@
     list.replaceChildren(...facts.map((f) => {
       const item = element('li', `tricky lv-${f.level}`);
       const head = element('div', 'tricky-head');
-      head.append(element('span', 'tricky-fact', `${f.a} × ${f.b} = ${f.answer}`), element('span', 'level-tag', LEVEL_NAMES[f.level]));
+      head.append(element('span', 'tricky-fact', `${f.a} ${symbolOf(f.operation)} ${f.b} = ${f.answer}`), element('span', 'level-tag', LEVEL_NAMES[f.level]));
       const bits = [recentText(f)];
-      if (f.slip) bits.push(`picked ${Insights.slipText(f.a, f.b, f.slip.value)}${f.slip.count > 1 ? `, ${times(f.slip.count)}` : ''}`);
+      if (f.slip) bits.push(`picked ${Insights.slipText(f.a, f.b, f.slip.value, f.operation)}${f.slip.count > 1 ? `, ${times(f.slip.count)}` : ''}`);
       else if (f.timeouts) bits.push(`time ran out ${times(f.timeouts)}`);
       if (f.level === 'learning' && f.typicalMs !== null && f.typicalMs > Insights.FLUENT_MS) bits.push(`about ${secs(f.typicalMs)} s to answer`);
       item.append(head, element('p', 'tricky-note', `${bits.join('; ')}.`));
@@ -964,9 +1023,10 @@
   }
 
   function factDetail(analysis, row, col) {
-    const fact = analysis.facts.get(Quiz.factKey(row, col));
-    if (!fact) return `${row} × ${col} = ${row * col}: not tried yet.`;
-    let text = `${row} × ${col} = ${row * col}: ${LEVEL_NAMES[fact.level].toLowerCase()}. ${recentText(fact)}`;
+    const fact = analysis.facts.get(Quiz.factKey(row, col, analysis.operation));
+    const name = `${row} ${symbolOf(analysis.operation)} ${col} = ${Quiz.answerFor(row, col, analysis.operation)}`;
+    if (!fact) return `${name}: not tried yet.`;
+    let text = `${name}: ${LEVEL_NAMES[fact.level].toLowerCase()}. ${recentText(fact)}`;
     if (fact.typicalMs !== null) text += `, typically in ${secs(fact.typicalMs)} s`;
     text += '.';
     if (fact.slip) text += ` Picked ${fact.slip.value} ${times(fact.slip.count)}.`;
@@ -977,10 +1037,12 @@
     const chart = $('mastery-chart');
     const counts = { mastered: 0, learning: 0, practice: 0, new: 0 };
     const seen = new Set();
+    $('map-title').textContent = analysis.operation === 'add' ? 'Addition map' : 'Times-table map';
+    labelChart(chart, analysis.operation);
     for (const node of chart.children) {
       const { row, col } = node.dataset;
       if (row === undefined || col === undefined) continue;
-      const key = Quiz.factKey(Number(row), Number(col));
+      const key = Quiz.factKey(Number(row), Number(col), analysis.operation);
       const fact = analysis.facts.get(key);
       const level = fact ? fact.level : 'new';
       node.className = `cell lv-${level}`;
@@ -1002,7 +1064,7 @@
     const groups = Insights.LEVELS.filter((level) => level !== 'new').map((level) => {
       const facts = [...analysis.facts.values()].filter((f) => f.level === level)
         .sort((x, y) => x.a - y.a || x.b - y.b)
-        .map((f) => `${f.a} × ${f.b}`);
+        .map((f) => `${f.a} ${symbolOf(f.operation)} ${f.b}`);
       const line = element('p', '');
       line.append(element('strong', '', `${LEVEL_NAMES[level]} (${facts.length}): `), document.createTextNode(facts.length ? facts.join(', ') : 'none yet'));
       return line;
@@ -1012,7 +1074,7 @@
 
   function pickMasteryCell(event) {
     const cell = event.target.closest('.cell');
-    const analysis = reportFor ? analysisFor(reportFor) : null;
+    const analysis = reportFor ? analysisFor(reportFor, reportOp) : null;
     if (!cell || !analysis) return;
     for (const node of $('mastery-chart').querySelectorAll('.is-picked')) node.classList.remove('is-picked');
     cell.classList.add('is-picked');
@@ -1144,7 +1206,7 @@
   }
 
   function pickTrend(index) {
-    const analysis = reportFor ? analysisFor(reportFor) : null;
+    const analysis = reportFor ? analysisFor(reportFor, reportOp) : null;
     if (!analysis) return;
     const next = Math.max(0, Math.min(analysis.trend.points.length - 1, index));
     if (next === trendPick) return;
@@ -1178,8 +1240,8 @@
       const right = r.answers.filter((x) => x.right).length;
       const what = [
         s.multiplyBy === 'range' && s.from !== null && s.to !== null
-          ? `${tablesText(s.tables)} × ${s.from}–${s.to}`
-          : `Tables ${tablesText(s.tables)}`,
+          ? `${tablesText(s.tables)} ${symbolOf(s.operation)} ${s.from}–${s.to}`
+          : `${s.operation === 'add' ? 'Numbers' : 'Tables'} ${tablesText(s.tables)}`,
         s.timeLimit ? `${s.timeLimit} s a question` : 'Relaxed',
       ];
       if (s.focus === 'weak') what.push('Weak spots');
@@ -1220,6 +1282,7 @@
 
   form.addEventListener('change', (event) => {
     if (event.target.name === 'player') choosePlayer(event.target.value);
+    else if (event.target.name === 'operation') chooseOperation(event.target.value);
     else if (event.target.id !== 'new-player-name') readSetup(event.target);
   });
   form.addEventListener('submit', (event) => {
@@ -1272,12 +1335,18 @@
   $('report-print').addEventListener('click', () => window.print());
   $('report-practice').addEventListener('click', () => {
     if (reportFor) settings.playerId = reportFor;
+    switchOperation(reportOp);
     settings.focus = 'weak';
     saveSettings();
     renderPlayers();
     renderSetup();
     showSetup();
     $('start').focus({ preventScroll: true });
+  });
+  $('report-ops').addEventListener('change', (event) => {
+    reportOp = event.target.value;
+    trendPick = -1;
+    renderReport();
   });
   $('mastery-chart').addEventListener('pointerover', pickMasteryCell);
   $('mastery-chart').addEventListener('click', pickMasteryCell);
@@ -1304,7 +1373,7 @@
       lastWidth = width;
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
-        const analysis = reportFor && !screens.report.hidden ? analysisFor(reportFor) : null;
+        const analysis = reportFor && !screens.report.hidden ? analysisFor(reportFor, reportOp) : null;
         if (analysis && analysis.totals.questions) drawTrends(analysis);
       });
     }).observe($('trend-right'));

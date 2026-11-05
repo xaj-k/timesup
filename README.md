@@ -1,6 +1,6 @@
 # Times Up!
 
-A multiplication quiz for kids. A question like **6 × 8** appears on a chalkboard at the top of the screen, and the player taps the one tile out of four that has the right answer.
+A math facts quiz for kids, for multiplication and addition. A question like **6 × 8** or **6 + 8** appears on a chalkboard at the top of the screen, and the player taps the one tile out of four that has the right answer.
 
 ## Play
 
@@ -13,33 +13,37 @@ To put it on a phone or tablet like an app, see [Install on a phone or tablet](#
 | Setting | Choices |
 | --- | --- |
 | Who's playing? | A first name, or Guest (guest rounds aren't saved) |
-| Times tables | Any of 1 to 12 |
-| Multiplied by | **The same numbers**: both numbers come from the tables you picked, so turning off 1 and 2 means no 1s or 2s at all. **A range**: each table is multiplied by every number in a range from 0 to 12, for whole tables like 7 × 1 to 7 × 10. |
+| Practice | **× Multiplication** or **+ Addition**. Each one remembers its own picks for the next two settings. |
+| Times tables (Numbers, for addition) | Any of 1 to 12 |
+| Multiplied by (Added to, for addition) | **The same numbers**: both numbers come from the ones you picked, so turning off 1 and 2 means no 1s or 2s at all. **A range**: each one you picked is multiplied by (or added to) every number in a range from 0 to 12, for whole tables like 7 × 1 to 7 × 10, or 7 + 0 to 7 + 10. |
 | Focus | **Everything**: every fact comes up equally often. **Weak spots**: facts the player has been missing come up more often (see below). Needs a named player with some history. |
 | Mode | **Relaxed** (no timer) or **Beat the clock** (5, 10, 15, 20 or 30 seconds per question) |
 | Questions per round | 10, 20 or 30 |
 
-The chart on the setup screen shades every fact that can come up. Each question shows its two numbers in either order (6 × 8 or 8 × 6). With Focus on Everything, no fact repeats until all of them have been asked. The browser remembers your settings for next time.
+The chart on the setup screen shades every fact that can come up. Each question shows its two numbers in either order (6 × 8 or 8 × 6, 6 + 8 or 8 + 6). With Focus on Everything, no fact repeats until all of them have been asked. The browser remembers your settings for next time.
 
 After a wrong answer or when time runs out, the right tile turns green and the answer is shown before the next question. At the end of a round you get up to three stars, your best streak, your average answer time, and a list of the facts to practice.
 
 ## How the wrong answers are picked
 
-The three wrong tiles are mistakes kids really make: a neighboring fact (6 × 7 or 6 × 9 instead of 6 × 8), one or two off, ten off, or swapped digits (65 instead of 56). So the right answer can't be spotted just by looking for the odd one out.
+The three wrong tiles are mistakes kids really make, so the right answer can't be spotted just by looking for the odd one out.
+
+- **Multiplying:** a neighboring fact (6 × 7 or 6 × 9 instead of 6 × 8), one or two off, ten off, or swapped digits (65 instead of 56).
+- **Adding:** counting one, two or three too far or not far enough, or ten off (5 or 25 instead of 15).
 
 ## Progress report
 
-Pick a player and tap **See progress** (on the setup screen or after a round). The report shows:
+Pick a player and tap **See progress** (on the setup screen or after a round). Multiplication and addition are looked at separately; when a player has done both, a switch at the top picks which one to show. The report shows:
 
 - **Known by heart**: how many facts are known, and how that's changed over the last 3 rounds.
 - **Right lately** and **Answer time lately**: the last 3 rounds, compared with the rounds before them.
-- **What to practice next**: up to four suggestions. For example, which facts to practice, a mix-up that keeps happening ("Maya has picked 54 for 7 × 8 seven times. That's the answer to 6 × 9…"), the trickiest table, whether to try the timer or a shorter time limit, or when to add a new table.
+- **What to practice next**: up to four suggestions. For example, which facts to practice, a mix-up that keeps happening ("Maya has picked 54 for 7 × 8 seven times. That's the answer to 6 × 9…"), the trickiest table, whether to try the timer or a shorter time limit, or when to add a new table. For addition it suggests the ways in kids learn, like near doubles (7 + 7 = 14, so 7 + 8 is one more) and making a ten (6 + 9 is the same as 5 + 10).
 - **Trickiest facts**: what each one's latest tries were like, and the wrong answer picked most.
 - **Times-table map**: every fact, colored by how well it's known. Tap a fact for details, or show the map as a list.
 - **Over time**: the share of right answers and the typical answer time for each day played (each round, until there are 3 days). Use the arrow keys to step through, or show it as a table.
 - **Recent rounds**.
 
-Each fact gets a level from its latest tries, in either order (6 × 8 and 8 × 6 count as one fact):
+Each fact gets a level from its latest tries, in either order (6 × 8 and 8 × 6 count as one fact, and so do 6 + 8 and 8 + 6):
 
 | Level | When |
 | --- | --- |
@@ -52,7 +56,7 @@ The report can be printed from a browser, including to a PDF.
 
 ## Weak spots
 
-With Focus on **Weak spots**, a round still uses only the tables and numbers you picked. It just doesn't ask them all equally often:
+With Focus on **Weak spots**, a round still uses only the tables and numbers you picked, and only the history of the operation being practiced. It just doesn't ask the facts equally often:
 
 - Facts that **need practice** come up the most, up to twice in a round. The setup chart marks them with a dot.
 - Facts that are **getting there** but slow, or missed lately, come up a bit more than usual.
@@ -73,7 +77,7 @@ Each round is saved as one record:
   "id": "r-mw09x0kq-2b7d1c",
   "playerId": "p-mw09x084-6xdi57",
   "startedAt": "2026-11-03T05:55:01.348Z",
-  "settings": { "tables": [3, 4, 5, 6, 7, 8, 9, 10], "multiplyBy": "same", "timeLimit": 0, "count": 10, "focus": "all" },
+  "settings": { "operation": "multiply", "tables": [3, 4, 5, 6, 7, 8, 9, 10], "multiplyBy": "same", "timeLimit": 0, "count": 10, "focus": "all" },
   "answers": [
     { "a": 8, "b": 9, "answer": 72, "choices": [71, 62, 64, 72], "picked": 71, "right": false, "ms": 3473 }
   ],
@@ -81,7 +85,8 @@ Each round is saved as one record:
 }
 ```
 
-- `a` and `b` are in the order they were shown.
+- `operation` is `"multiply"` or `"add"`. Rounds saved before addition existed don't have it, and count as multiplication.
+- `a` and `b` are in the order they were shown, and `answer` is their product or sum.
 - `picked` is `null` when time ran out.
 - `ms` is how long the answer took.
 - `timeLimit` is seconds per question, with `0` meaning no timer.

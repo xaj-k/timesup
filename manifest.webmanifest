@@ -1,7 +1,7 @@
 {
-  "name": "Times Up! Multiplication practice",
+  "name": "Times Up! Multiplication and addition practice",
   "short_name": "Times Up",
-  "description": "A multiplication quiz for kids: pick the right answer from four tiles, with or without a timer.",
+  "description": "A math facts quiz for kids, for multiplication and addition: pick the right answer from four tiles, with or without a timer.",
   "lang": "en",
   "start_url": "./",
   "scope": "./",
@@ -9,11 +9,31 @@
   "orientation": "any",
   "background_color": "#f3f6fb",
   "theme_color": "#f3f6fb",
-  "categories": ["education", "kids"],
+  "categories": [
+    "education",
+    "kids"
+  ],
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
-    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
-    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
   ]
 }

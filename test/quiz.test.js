@@ -150,6 +150,49 @@
     same(Quiz.sanitizeSettings({ focus: 'hard' }).focus, 'all', 'an unknown focus falls back to everything');
   });
 
+  // ---------- addition ----------
+
+  test('addition: the 1 to 10 numbers added to each other make 55 facts, and the answers are sums', () => {
+    const settings = { operation: 'add', tables: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], multiplyBy: 'same', count: 30 };
+    same(Quiz.factsFor(settings).length, 55, 'fact count');
+    for (const q of Quiz.createRound(settings, seeded(11))) {
+      same(q.answer, q.a + q.b, `answer to ${q.a} + ${q.b}`);
+      check(q.choices.includes(q.a + q.b), `${q.a} + ${q.b}: right answer missing from the choices`);
+    }
+  });
+
+  test('addition: four different choices, one right, all believable adding slips', () => {
+    const random = seeded(12);
+    for (let a = 0; a <= 12; a++) {
+      for (let b = 0; b <= 12; b++) {
+        for (let k = 0; k < 10; k++) {
+          const choices = Quiz.makeChoices(a, b, random, [], 'add');
+          const label = `${a} + ${b} gave ${choices}`;
+          check(choices.length === 4 && new Set(choices).size === 4, `${label}: needs 4 different choices`);
+          check(choices.filter((c) => c === a + b).length === 1, `${label}: right answer must appear once`);
+          for (const c of choices) {
+            if (c === a + b) continue;
+            check(c >= 0 && [1, 2, 3, 10].includes(Math.abs(c - (a + b))), `${label}: ${c} is not an adding slip`);
+          }
+        }
+      }
+    }
+    const seen = [0, 0, 0, 0];
+    for (let i = 0; i < 400; i++) seen[Quiz.makeChoices(7, 8, random, [], 'add').indexOf(15)] += 1;
+    check(seen.every((n) => n > 60), `right answer positions were ${seen}`);
+    check(Quiz.isSlip(7, 8, 18, 'add') && !Quiz.isSlip(7, 8, 18) && !Quiz.isSlip(7, 8, 51, 'add'), 'isSlip knows which operation');
+  });
+
+  test('settings remember the picks for each operation', () => {
+    const s = Quiz.sanitizeSettings({ operation: 'add', tables: [1, 2, 3], selections: { multiply: { tables: [6, 7, 8], multiplyBy: 'range', from: 2, to: 9 } } });
+    same([s.operation, s.tables], ['add', [1, 2, 3]], 'the current operation and its numbers');
+    same(s.selections.add.tables, [1, 2, 3], 'addition picks kept with the operation');
+    same([s.selections.multiply.tables, s.selections.multiply.multiplyBy, s.selections.multiply.from, s.selections.multiply.to], [[6, 7, 8], 'range', 2, 9], 'multiplication picks kept');
+    same(Quiz.sanitizeSettings({}).operation, 'multiply', 'multiplication by default');
+    same(Quiz.sanitizeSettings({ operation: 'divide' }).operation, 'multiply', 'an unknown operation falls back to multiplication');
+    same(Quiz.sanitizeSettings({ tables: [4] }).selections.add.tables, Quiz.DEFAULT_SETTINGS.tables, 'addition starts with the default numbers');
+  });
+
   // ---------- weak-spots rounds ----------
 
   test('a wrong answer picked before comes back as a choice, if it is a believable slip', () => {
@@ -288,6 +331,29 @@
     const ready = Insights.advice(Insights.analyze(known, START + 2 * DAY), 'Leo');
     check(ready.some((t) => t === 'Leo knows most of the facts practiced so far by heart. Ready for something new: add the 7s and 8s.'), `ready tip missing: ${ready}`);
     check(ready.some((t) => t.startsWith('Quick and accurate lately (100% right).')), `timer tip missing: ${ready}`);
+  });
+
+  test('addition history is looked at apart from multiplication', () => {
+    const plus = (a, b, picked, ms = 2000) => ({ a, b, answer: a + b, choices: [], picked, right: picked === a + b, ms });
+    const rounds = [
+      roundOf(on(0), [hit(3, 4), hit(3, 4), miss(6, 7, 48)]),
+      roundOf(on(1), [plus(7, 8, 16), plus(7, 8, 16), plus(3, 4, 7)], { operation: 'add' }),
+      roundOf(on(2), [plus(8, 7, 15), plus(6, 9, 14)], { operation: 'add' }),
+    ];
+    const times = Insights.analyze(rounds, START + 2 * DAY);
+    const adds = Insights.analyze(rounds, START + 2 * DAY, 'add');
+    same([...times.facts.keys()], ['3x4', '6x7'], 'multiplication facts');
+    same([...adds.facts.keys()], ['7+8', '3+4', '6+9'], 'addition facts');
+    same([times.totals.rounds, adds.totals.rounds], [1, 2], 'rounds for each');
+    same(adds.facts.get('7+8').slip, { value: 16, count: 2 }, 'the wrong sum picked');
+    same(Insights.overall(rounds), { rounds: 3, questions: 8, right: 4, operations: ['multiply', 'add'] }, 'totals across both');
+    same(Insights.slipText(7, 8, 16, 'add'), '16, 1 too many', 'adding slip');
+    same(Insights.slipText(7, 8, 5, 'add'), '5, ten too few', 'adding slip by ten');
+    const tips = Insights.advice(adds, 'Leo');
+    check(tips[0] === 'Practice 6 + 9 and 7 + 8. Choose “Weak spots” on the setup screen and they\'ll come up more often.', `first tip: ${tips[0]}`);
+    check(tips.includes('Leo has picked 16 for 7 + 8 twice. Doubles can help: 7 + 7 = 14, so 7 + 8 is one more: 15.'), `near-doubles tip missing: ${tips}`);
+    same(Insights.needFinder(adds)(9, 6).weight, 20, '6 + 9 needs practice in a weak-spots round');
+    same(Insights.needFinder(adds)(6, 9).slips, [14], 'the 14 picked for 6 + 9 comes back as a choice');
   });
 
   test('a weak-spots round can be built from a history', () => {

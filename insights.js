@@ -1,10 +1,11 @@
 /*
  * Times Up: what a player's history says. Which facts they know by heart,
  * which ones trip them up (and how), how they're doing over time, and what
- * to practice next. There's no page code in here, so the tests run it too.
+ * to practice next. Multiplication and addition are looked at separately.
+ * There's no page code in here, so the tests run it too.
  *
  * Each fact gets a level from its latest tries, in either order (6 × 8 and
- * 8 × 6 are one fact):
+ * 8 × 6 are one fact, and so are 6 + 8 and 8 + 6):
  *   mastered   Got it          the last 3 tries were right, typically within 4 seconds
  *   learning   Getting there   right lately, but not 3 in a row yet, or slower than that
  *   practice   Needs practice  the last try was wrong, or fewer than half of the last 4 were right
@@ -64,9 +65,9 @@
     return Number.isInteger(v) && v >= Quiz.RANGE_MIN && v <= Quiz.RANGE_MAX;
   }
 
-  function cleanAnswer(raw) {
+  function cleanAnswer(raw, operation) {
     if (!raw || typeof raw !== 'object' || !whole(raw.a) || !whole(raw.b)) return null;
-    const answer = raw.a * raw.b;
+    const answer = Quiz.answerFor(raw.a, raw.b, operation);
     const picked = Number.isInteger(raw.picked) ? raw.picked : null; // null: time ran out
     const ms = Number.isFinite(raw.ms) && raw.ms >= 0 ? raw.ms : null;
     return { a: raw.a, b: raw.b, answer, picked, right: picked === answer, ms };
@@ -77,15 +78,19 @@
     for (const r of Array.isArray(raw) ? raw : []) {
       if (!r || typeof r !== 'object') continue;
       const at = Date.parse(r.startedAt);
-      const answers = (Array.isArray(r.answers) ? r.answers : []).map(cleanAnswer).filter(Boolean);
-      if (!Number.isFinite(at) || !answers.length) continue;
       const s = r.settings && typeof r.settings === 'object' ? r.settings : {};
+      // Rounds saved before addition existed are multiplication.
+      const operation = s.operation === 'add' ? 'add' : 'multiply';
+      const answers = (Array.isArray(r.answers) ? r.answers : []).map((x) => cleanAnswer(x, operation)).filter(Boolean);
+      if (!Number.isFinite(at) || !answers.length) continue;
       rounds.push({
         id: typeof r.id === 'string' ? r.id : '',
         at,
+        operation,
         answers,
         finished: r.finished === true,
         settings: {
+          operation,
           tables: Array.isArray(s.tables) ? s.tables.filter(whole) : [],
           multiplyBy: s.multiplyBy === 'range' ? 'range' : 'same',
           from: whole(s.from) ? s.from : null,
@@ -116,7 +121,7 @@
   function commonSlip(fact) {
     const counts = new Map();
     fact.tries.forEach((t, i) => {
-      if (t.right || !Quiz.isSlip(fact.a, fact.b, t.picked)) return;
+      if (t.right || !Quiz.isSlip(fact.a, fact.b, t.picked, fact.operation)) return;
       const seen = counts.get(t.picked) || { value: t.picked, count: 0, last: -1 };
       seen.count += 1;
       seen.last = i;
@@ -199,17 +204,30 @@
     return counts;
   }
 
+  /** Totals across all of a player's rounds, both operations, and which operations they've played. */
+  function overall(rawRounds) {
+    const rounds = cleanRounds(rawRounds);
+    const answers = rounds.flatMap((r) => r.answers);
+    return {
+      rounds: rounds.length,
+      questions: answers.length,
+      right: answers.filter((x) => x.right).length,
+      operations: Quiz.OPERATION_OPTIONS.filter((op) => rounds.some((r) => r.operation === op)),
+    };
+  }
+
   /**
    * Everything the progress report and weak-spots rounds need, from a
-   * player's saved rounds (any order; bad records are skipped).
+   * player's saved rounds (any order; bad records are skipped), for one
+   * operation: 'multiply' or 'add'.
    */
-  function analyze(rawRounds, now = Date.now()) {
-    const rounds = cleanRounds(rawRounds);
+  function analyze(rawRounds, now = Date.now(), operation = 'multiply') {
+    const rounds = cleanRounds(rawRounds).filter((r) => r.operation === operation);
     const facts = new Map();
     rounds.forEach((round, index) => {
       for (const x of round.answers) {
-        const key = Quiz.factKey(x.a, x.b);
-        if (!facts.has(key)) facts.set(key, { key, a: Math.min(x.a, x.b), b: Math.max(x.a, x.b), answer: x.answer, tries: [] });
+        const key = Quiz.factKey(x.a, x.b, operation);
+        if (!facts.has(key)) facts.set(key, { key, operation, a: Math.min(x.a, x.b), b: Math.max(x.a, x.b), answer: x.answer, tries: [] });
         facts.get(key).tries.push({ right: x.right, ms: x.ms, picked: x.picked, at: round.at, round: index });
       }
     });
@@ -226,6 +244,7 @@
     }
     const last = rounds.length ? rounds[rounds.length - 1].at : null;
     return {
+      operation,
       rounds,
       facts,
       levels: countLevels(facts.values()),
@@ -275,7 +294,7 @@
   /** How strongly a weak-spots round leans on each fact; see Quiz.createFocusRound. */
   function needFinder(analysis) {
     return function needOf(a, b) {
-      const fact = analysis ? analysis.facts.get(Quiz.factKey(a, b)) : null;
+      const fact = analysis ? analysis.facts.get(Quiz.factKey(a, b, analysis.operation)) : null;
       return { ...FOCUS[focusKind(fact)], slips: fact && fact.slip ? [fact.slip.value] : [] };
     };
   }
@@ -284,7 +303,7 @@
   function focusCounts(analysis, facts) {
     const counts = { mastered: 0, learning: 0, practice: 0, new: 0 };
     for (const [a, b] of facts) {
-      const fact = analysis ? analysis.facts.get(Quiz.factKey(a, b)) : null;
+      const fact = analysis ? analysis.facts.get(Quiz.factKey(a, b, analysis.operation)) : null;
       counts[fact ? fact.level : 'new'] += 1;
     }
     return counts;
@@ -292,10 +311,14 @@
 
   // ---------- wrong answers, in words ----------
 
-  /** What kind of slip a wrong answer to a × b is. */
-  function slipKind(a, b, picked) {
-    const answer = a * b;
+  /** What kind of slip a wrong answer to a × b (or a + b) is. */
+  function slipKind(a, b, picked, operation = 'multiply') {
+    const answer = Quiz.answerFor(a, b, operation);
     const gap = picked - answer;
+    if (operation === 'add') {
+      if (Math.abs(gap) === 10) return { kind: 'ten', more: gap > 0 };
+      return { kind: 'close', by: Math.abs(gap), more: gap > 0 };
+    }
     const step = Math.sign(gap);
     if (a > 0 && Math.abs(gap) === a) return { kind: 'neighbour', a, b: b + step, by: a };
     if (b > 0 && Math.abs(gap) === b) return { kind: 'neighbour', a: a + step, b, by: b };
@@ -314,9 +337,9 @@
     return { kind: 'close', by: Math.abs(gap), more: gap > 0 };
   }
 
-  /** A short note on a wrong answer, like "63, which is 7 × 9". */
-  function slipText(a, b, picked) {
-    const slip = slipKind(a, b, picked);
+  /** A short note on a wrong answer, like "63, which is 7 × 9" or "16, 1 too many". */
+  function slipText(a, b, picked, operation = 'multiply') {
+    const slip = slipKind(a, b, picked, operation);
     if (slip.kind === 'neighbour' || slip.kind === 'other') return `${picked}, which is ${slip.a} × ${slip.b}`;
     if (slip.kind === 'swap') return `${picked}, the digits swapped`;
     if (slip.kind === 'ten') return `${picked}, ten ${slip.more ? 'too many' : 'too few'}`;
@@ -332,9 +355,15 @@
   }
 
   function slipTip(fact, name) {
-    const { a, b, answer } = fact;
+    const { a, b, answer, operation } = fact;
     const picked = fact.slip.value;
-    const start = `${name} has picked ${picked} for ${a} × ${b} ${times(fact.slip.count)}.`;
+    const start = `${name} has picked ${picked} for ${a} ${Quiz.operationOf(operation).symbol} ${b} ${times(fact.slip.count)}.`;
+    if (operation === 'add') {
+      // Two ways in that kids learn: near doubles, and making a ten.
+      if (b - a === 1) return `${start} Doubles can help: ${a} + ${a} = ${a + a}, so ${a} + ${b} is one more: ${answer}.`;
+      if (b === 9 && a >= 2) return `${start} Make a ten: ${a} + 9 is the same as ${a - 1} + 10, which is ${answer}.`;
+      return `${start} The answer is ${answer}, ${Math.abs(picked - answer)} ${picked > answer ? 'less' : 'more'}.`;
+    }
     const slip = slipKind(a, b, picked);
     if (slip.kind === 'neighbour') {
       return `${start} ${picked} is ${slip.a} × ${slip.b}, and ${a} × ${b} is one ${slip.by} ${picked > answer ? 'less' : 'more'}: ${answer}.`;
@@ -363,10 +392,17 @@
     return analysis.tables.filter((t) => t.tried >= 5 && t.mastered >= 0.9 * t.tried).map((t) => t.table);
   }
 
+  // "a 7", "an 8", "an 11"
+  function aNumber(n) {
+    return `${n === 8 || n === 11 || n === 18 ? 'an' : 'a'} ${n}`;
+  }
+
   /** Up to four suggestions, most useful first. */
   function advice(analysis, name) {
     const tips = [];
     const { facts, lately, levels } = analysis;
+    const adding = analysis.operation === 'add';
+    const symbol = Quiz.operationOf(analysis.operation).symbol;
     if (!analysis.totals.questions) return tips;
 
     if (analysis.daysSinceLast >= 7) {
@@ -375,7 +411,7 @@
 
     const practice = trickiest(analysis, 3).filter((f) => f.level === 'practice');
     if (practice.length) {
-      tips.push(`Practice ${listOf(practice.map((f) => `${f.a} × ${f.b}`))}. ` +
+      tips.push(`Practice ${listOf(practice.map((f) => `${f.a} ${symbol} ${f.b}`))}. ` +
         `Choose “Weak spots” on the setup screen and ${practice.length > 1 ? 'they' : 'it'}'ll come up more often.`);
     }
 
@@ -390,9 +426,14 @@
       .slice(0, 2);
     if (weakTables.length) {
       const many = weakTables.length > 1;
-      tips.push(`The ${listOf(weakTables.map((t) => `${t.table}s`))} are the trickiest ${many ? 'tables' : 'table'} lately ` +
-        `(${listOf(weakTables.map((t) => `${Math.round(t.accuracy * 100)}%`))} right). ` +
-        `A few rounds of just ${many ? 'those' : 'that one'} can help.`);
+      const shares = `(${listOf(weakTables.map((t) => `${Math.round(t.accuracy * 100)}%`))} right)`;
+      if (adding) {
+        tips.push(`Facts with ${weakTables.map((t) => aNumber(t.table)).join(' or ')} are the trickiest lately ${shares}. ` +
+          'A few rounds of just those can help.');
+      } else {
+        tips.push(`The ${listOf(weakTables.map((t) => `${t.table}s`))} are the trickiest ${many ? 'tables' : 'table'} lately ${shares}. ` +
+          `A few rounds of just ${many ? 'those' : 'that one'} can help.`);
+      }
     }
 
     const recent = analysis.rounds.slice(-LATELY);
@@ -421,12 +462,19 @@
     const tried = levels.mastered + levels.learning + levels.practice;
     if (tried >= 10 && levels.mastered >= 0.8 * tried) {
       const highest = Math.max(...analysis.tables.filter((t) => t.tried > 0).map((t) => t.table));
-      const next = analysis.tables.filter((t) => t.table > highest).slice(0, 2).map((t) => `${t.table}s`);
-      if (next.length) tips.push(`${name} knows most of the facts practiced so far by heart. Ready for something new: add the ${listOf(next)}.`);
+      const next = analysis.tables.filter((t) => t.table > highest).slice(0, 2).map((t) => t.table);
+      if (next.length) {
+        tips.push(`${name} knows most of the facts practiced so far by heart. Ready for something new: ` +
+          (adding ? `add ${listOf(next.map(String))} to the numbers.` : `add the ${listOf(next.map((t) => `${t}s`))}.`));
+      }
     }
 
     const strong = strongTables(analysis);
-    if (strong.length) tips.push(`Strong on the ${listOf(strong.map((t) => `${t}s`))}: nearly every fact known by heart.`);
+    if (strong.length) {
+      tips.push(adding
+        ? `Strong on facts with ${listOf(strong.map(String))}: nearly every one known by heart.`
+        : `Strong on the ${listOf(strong.map((t) => `${t}s`))}: nearly every fact known by heart.`);
+    }
 
     if (!tips.length) tips.push('Keep it up! A few short rounds a week keep the facts fresh.');
     return tips.slice(0, 4);
@@ -437,6 +485,7 @@
     RECENT,
     LATELY,
     LEVELS,
+    overall,
     analyze,
     levelOf,
     trickiest,

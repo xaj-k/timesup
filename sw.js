@@ -6,7 +6,7 @@
  * tablets with the app installed know to fetch the new copies; they switch
  * to them the next time the app is opened.
  */
-const VERSION = '2026-11-05.1';
+const VERSION = '2026-11-05.2';
 const CACHE = `timesup-${VERSION}`;
 const FILES = [
   'index.html',

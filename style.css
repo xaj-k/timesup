@@ -571,6 +571,11 @@ html:has(#game:not([hidden])) { overscroll-behavior-y: none; }
 }
 
 .pill input:checked + span { background: var(--pen); color: var(--pen-ink); }
+
+/* The × or + in front of an operation's name, on the same line */
+.pill span:has(.op-sign) { grid-auto-flow: column; gap: 8px; }
+.op-sign { font-family: var(--font-display); font-size: 22px; font-weight: 400; line-height: 1; }
+.report-ops { margin-top: -4px; }
 .pill input:disabled, .pill input:disabled + span { cursor: not-allowed; }
 .pill input:disabled + span { opacity: 0.45; }
 

@@ -1,7 +1,8 @@
 /*
  * Times Up: the quiz rules. Which facts get asked, the four answer choices,
- * and scoring. There is no page code in here, so the same file runs in the
- * game (as window.Quiz) and in the tests (test/index.html).
+ * and scoring, for multiplication and addition. There is no page code in
+ * here, so the same file runs in the game (as window.Quiz) and in the tests
+ * (test/index.html).
  */
 (function (global) {
   'use strict';
@@ -17,7 +18,16 @@
   // 'all' asks every fact equally often; 'weak' leans on the ones a player finds tricky.
   const FOCUS_OPTIONS = ['all', 'weak'];
 
+  const OPERATIONS = {
+    multiply: { symbol: '×', word: 'times', name: 'multiplication', apply: (a, b) => a * b },
+    add: { symbol: '+', word: 'plus', name: 'addition', apply: (a, b) => a + b },
+  };
+  const OPERATION_OPTIONS = Object.keys(OPERATIONS);
+
+  // tables, multiplyBy, from and to pick the facts. Each operation remembers
+  // its own picks in `selections`; the top-level ones are the current operation's.
   const DEFAULT_SETTINGS = Object.freeze({
+    operation: 'multiply',
     tables: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
     multiplyBy: 'same',
     from: 1,
@@ -39,9 +49,19 @@
     return items;
   }
 
-  /** 6 × 8 and 8 × 6 share a key: they are the same fact. */
-  function factKey(a, b) {
-    return a <= b ? `${a}x${b}` : `${b}x${a}`;
+  function operationOf(name) {
+    return OPERATIONS[name] || OPERATIONS.multiply;
+  }
+
+  /** The right answer to a × b, or a + b. */
+  function answerFor(a, b, operation = 'multiply') {
+    return operationOf(operation).apply(a, b);
+  }
+
+  /** 6 × 8 and 8 × 6 share a key ("6x8"): they are the same fact. 6 + 8 is "6+8". */
+  function factKey(a, b, operation = 'multiply') {
+    const [low, high] = a <= b ? [a, b] : [b, a];
+    return `${low}${operation === 'add' ? '+' : 'x'}${high}`;
   }
 
   /** The numbers the chosen times tables get multiplied by. */
@@ -81,35 +101,43 @@
     return answer > 10 && answer < 100 && answer % 10 !== 0 ? (answer % 10) * 10 + Math.floor(answer / 10) : null;
   }
 
-  /** Whether n is one of the believable wrong answers to a × b that makeChoices offers. */
-  function isSlip(a, b, n) {
-    const answer = a * b;
+  // How far off a believable wrong answer is. Multiplying: a neighbouring
+  // fact (one a or one b away), or 1, 2 or 10 off. Adding: 1, 2, 3 or 10 off.
+  function slipSteps(a, b, operation) {
+    return operation === 'add' ? [1, 2, 3, 10] : [a, b, 1, 2, 10];
+  }
+
+  /** Whether n is one of the believable wrong answers to a × b (or a + b) that makeChoices offers. */
+  function isSlip(a, b, n, operation = 'multiply') {
+    const answer = answerFor(a, b, operation);
     if (!Number.isInteger(n) || n < 0 || n === answer) return false;
-    return [a, b, 1, 2, 10].includes(Math.abs(n - answer)) || n === swapDigits(answer);
+    if (slipSteps(a, b, operation).includes(Math.abs(n - answer))) return true;
+    return operation !== 'add' && n === swapDigits(answer);
   }
 
   /**
    * The right answer plus three believable wrong ones, in random order.
-   * Wrong answers copy real slips: landing on a neighbouring fact
-   * (6 × 7 or 6 × 9 instead of 6 × 8), being off by one or two, slipping
-   * by ten, or swapping the digits (65 for 56).
+   * Wrong answers copy real slips. Multiplying: landing on a neighbouring
+   * fact (6 × 7 or 6 × 9 instead of 6 × 8), being off by one or two,
+   * slipping by ten, or swapping the digits (65 for 56). Adding: counting
+   * one, two or three too far or not far enough, or slipping by ten.
    * `wanted` can name a wrong answer to include, such as one the player
    * picked before; it's used only if it's one of those slips.
    */
-  function makeChoices(a, b, random = Math.random, wanted = []) {
-    const answer = a * b;
+  function makeChoices(a, b, random = Math.random, wanted = [], operation = 'multiply') {
+    const answer = answerFor(a, b, operation);
     const wrong = [];
-    const favourite = wanted.find((n) => isSlip(a, b, n));
+    const favourite = wanted.find((n) => isSlip(a, b, n, operation));
     if (favourite !== undefined) wrong.push(favourite);
     const slips = [];
     // One slip per kind, going up or down at random, so the right answer
     // isn't always the one in the middle.
-    for (const step of [a, b, 1, 2, 10]) {
+    for (const step of slipSteps(a, b, operation)) {
       if (step === 0) continue;
       const below = answer - step;
       slips.push(below >= 0 && random() < 0.5 ? below : answer + step);
     }
-    const swapped = swapDigits(answer);
+    const swapped = operation === 'add' ? null : swapDigits(answer);
     if (swapped !== null) slips.push(swapped);
     // The steps 1, 2 and 10 always give three different wrong numbers,
     // so this loop always finds three.
@@ -126,6 +154,7 @@
    * two numbers in a random order.
    */
   function createRound(settings, random = Math.random) {
+    const operation = settings.operation || 'multiply';
     const facts = factsFor(settings);
     if (facts.length === 0) throw new Error('Pick at least one times table.');
 
@@ -143,7 +172,7 @@
       const fact = bag.pop();
       previous = fact;
       const [a, b] = random() < 0.5 ? fact : [fact[1], fact[0]];
-      questions.push({ a, b, answer: a * b, choices: makeChoices(a, b, random) });
+      questions.push({ a, b, answer: answerFor(a, b, operation), choices: makeChoices(a, b, random, [], operation) });
     }
     return questions;
   }
@@ -168,6 +197,7 @@
    * A fact never comes back within three questions of itself.
    */
   function createFocusRound(settings, needOf, random = Math.random) {
+    const operation = settings.operation || 'multiply';
     const facts = factsFor(settings);
     if (facts.length === 0) throw new Error('Pick at least one times table.');
     const pool = facts.map((fact) => {
@@ -191,7 +221,7 @@
       pick.uses += 1;
       pick.last = i;
       const [a, b] = random() < 0.5 ? pick.fact : [pick.fact[1], pick.fact[0]];
-      questions.push({ a, b, answer: a * b, choices: makeChoices(a, b, random, pick.slips) });
+      questions.push({ a, b, answer: answerFor(a, b, operation), choices: makeChoices(a, b, random, pick.slips, operation) });
     }
     return questions;
   }
@@ -213,16 +243,31 @@
     const pick = (v, options, fallback) => (options.includes(v) ? v : fallback);
     const flag = (v, fallback) => (typeof v === 'boolean' ? v : fallback);
 
-    let from = whole(s.from, d.from);
-    let to = whole(s.to, d.to);
-    if (from > to) [from, to] = [to, from];
+    // Which facts: the tables (or numbers to add), and what they're multiplied by or added to.
+    const selection = (src) => {
+      let from = whole(src.from, d.from);
+      let to = whole(src.to, d.to);
+      if (from > to) [from, to] = [to, from];
+      return {
+        // An empty list is allowed here; the setup screen asks for a table before starting.
+        tables: Array.isArray(src.tables) ? TABLES.filter((t) => src.tables.includes(t)) : d.tables.slice(),
+        multiplyBy: pick(src.multiplyBy, MULTIPLY_OPTIONS, d.multiplyBy),
+        from,
+        to,
+      };
+    };
+    const operation = pick(s.operation, OPERATION_OPTIONS, d.operation);
+    const current = selection(s);
+    const saved = s.selections && typeof s.selections === 'object' ? s.selections : {};
+    const selections = {};
+    for (const name of OPERATION_OPTIONS) {
+      selections[name] = name === operation ? { ...current, tables: current.tables.slice() } : selection(saved[name] && typeof saved[name] === 'object' ? saved[name] : {});
+    }
 
     return {
-      // An empty list is allowed here; the setup screen asks for a table before starting.
-      tables: Array.isArray(s.tables) ? TABLES.filter((t) => s.tables.includes(t)) : d.tables.slice(),
-      multiplyBy: pick(s.multiplyBy, MULTIPLY_OPTIONS, d.multiplyBy),
-      from,
-      to,
+      operation,
+      ...current,
+      selections,
       timed: flag(s.timed, d.timed),
       seconds: pick(s.seconds, SECONDS_OPTIONS, d.seconds),
       count: pick(s.count, COUNT_OPTIONS, d.count),
@@ -240,8 +285,12 @@
     COUNT_OPTIONS,
     MULTIPLY_OPTIONS,
     FOCUS_OPTIONS,
+    OPERATIONS,
+    OPERATION_OPTIONS,
     DEFAULT_SETTINGS,
     shuffle,
+    operationOf,
+    answerFor,
     factKey,
     multipliersFor,
     buildFacts,
