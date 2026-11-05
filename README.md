@@ -4,7 +4,7 @@ A multiplication quiz for kids. A question like **6 × 8** appears on a chalkboa
 
 ## Play
 
-Open `index.html` in a web browser. There's nothing to install, and the fonts come with it, so it works offline too.
+Play it at **https://xaj-k.github.io/timesup/**, or open `index.html` from this folder in a web browser. Either way there's nothing to install, and the fonts come with it, so it works offline too.
 
 To put it on a phone or tablet like an app, see [Install on a phone or tablet](#install-on-a-phone-or-tablet).
 
@@ -98,19 +98,23 @@ Where it's kept:
 
 Times Up is a Progressive Web App: once installed, it opens from the home screen like any other app and works offline.
 
-1. **Put the folder on a web server that uses HTTPS.** Browsers only install apps, and only keep offline copies, from HTTPS addresses (or `localhost` on the same computer). Any static host works, for example:
-   - **GitHub Pages**: push this folder to a GitHub repository, then in its Settings choose Pages and deploy from the main branch. The app is then at `https://<your-name>.github.io/<repository>/`.
-   - **Netlify Drop**: drag the folder onto [app.netlify.com/drop](https://app.netlify.com/drop).
-2. **Open that address on the phone or tablet, then install:**
+1. **Open https://xaj-k.github.io/timesup/ on the phone or tablet.**
+2. **Install it:**
    - **Android (Chrome):** tap **Install app** on the setup screen, or choose **Install app** from the browser menu.
    - **iPhone or iPad (Safari):** tap the Share button, then **Add to Home Screen**. The app's **Install app** button shows these steps too.
 3. **Open it once while online.** After that it works without a connection.
 
 On a phone held sideways, the board and the answer tiles sit side by side. During a round the screen stays on, where the browser allows it.
 
-To try it on your computer first, run `python3 -m http.server` in this folder and open <http://localhost:8000>. A phone can open the same server at your computer's address on your Wi-Fi network, but over plain HTTP it can't install the app or work offline.
+### Publishing changes
 
-**After changing any file**, change `VERSION` at the top of `sw.js`. Installed copies check for a new version each time they're opened, download the new files in the background, and switch to them the next time the app is opened.
+The site is served by GitHub Pages from the `main` branch of this repository, so pushing to `main` updates it within a minute or two.
+
+**After changing any file the app uses**, also change `VERSION` at the top of `sw.js`. Installed copies check for a new version each time they're opened, download the new files in the background, and switch to them the next time the app is opened. Without a new `VERSION`, they keep the old files.
+
+To try changes on your computer first, run `python3 -m http.server` in this folder and open <http://localhost:8000>. Browsers only install apps, and only keep offline copies, from HTTPS addresses or `localhost`, so a phone opening your computer over plain HTTP on Wi-Fi can play but not install.
+
+Any other static host with HTTPS works too, such as [Netlify Drop](https://app.netlify.com/drop).
 
 ## Files
 
