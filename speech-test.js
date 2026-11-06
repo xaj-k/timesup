@@ -1,14 +1,18 @@
 /*
  * Times Up speech check: shows 20 words one at a time, listens with the
- * browser's speech recognition, and reports how often it understood. It's a
- * trial run before building a reading mode, so nothing is saved.
+ * browser's speech recognition or with Vosk on the device (listen.js), and
+ * reports how often it understood. It's a trial run for reading practice,
+ * so nothing is saved.
  */
 (function () {
   'use strict';
 
   const Reading = window.Reading;
-  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const PAGE_VERSION = 3; // in the results, so it's clear which page made them
+  const Listen = window.Listen;
+  const Recognition = Listen.BrowserRecognition;
+  const vosk = Listen.vosk;
+  const meter = Listen.meter;
+  const PAGE_VERSION = 4; // in the results, so it's clear which page made them
   const PAUSE_AFTER_RIGHT = 900; // ms before the next word
   const LISTEN_LIMIT = 8000; // ms; stop listening after this if the browser hasn't
   const READY_LIMIT = 1500; // ms; show the word by then, even if the browser never says the mic is on
@@ -19,47 +23,27 @@
 
   const $ = (id) => document.getElementById(id);
   const items = Reading.speechCheckItems();
-  const device = { os: 'Unknown', browser: 'Unknown', local: 'not available' };
+  // Vosk listens for these: the words on this page, the packet's other words, and "[unk]" for anything else.
+  const VOSK_WORDS = [...new Set([...items.map((i) => i.word), ...Reading.SIGHT_WORDS, ...Reading.PHONICS.flatMap((g) => g.words)])];
+  let device = { os: 'Unknown', android: null, browser: 'Unknown' };
+  let localStatusText = 'not available'; // Chrome's own on-device recognition
+  let engine = 'online'; // 'online' (Google), 'device' (Chrome on the device) or 'vosk'
   let results = [];
   let index = -1;
   let session = null; // the recognition that's listening now
   let advance = 0; // timer for moving on to the next word
   let relisten = 0; // timer for listening again
   let triesLeft = RELISTEN; // listens left before the page waits for a tap
-  let useLocal = false;
+  let runEngine = 'online'; // the recognizer the last run used
   let liveRun = false; // whether the level bar runs while the page listens for words
   let micCheck = null; // what the mic check before starting measured
   let starting = false;
 
   // ---------- this device ----------
 
-  function brandOf(list) {
-    const named = list.find((b) => !/Chromium|Not.?A.?Brand/i.test(b.brand)) || list.find((b) => /Chromium/i.test(b.brand));
-    return named ? `${named.brand} ${String(named.version).split('.')[0]}` : '';
-  }
-
-  async function describeDevice() {
-    try {
-      const data = navigator.userAgentData;
-      if (data && data.getHighEntropyValues) {
-        // The browser's user-agent string hides the real Android version; this asks for it.
-        const v = await data.getHighEntropyValues(['platformVersion', 'model', 'fullVersionList']);
-        const version = String(v.platformVersion || '').split('.')[0];
-        device.os = data.platform === 'Android' ? `Android ${version}${v.model ? ` (${v.model})` : ''}` : data.platform || device.os;
-        device.browser = brandOf(v.fullVersionList || []) || device.browser;
-      }
-    } catch (error) {
-      // Fall back to the user-agent string below.
-    }
-    const ua = navigator.userAgent;
-    if (device.os === 'Unknown') {
-      device.os = /Windows/.test(ua) ? 'Windows' : /iPhone|iPad/.test(ua) ? 'iOS' : /Mac OS X/.test(ua) ? 'macOS' : /Android/.test(ua) ? 'Android' : /Linux/.test(ua) ? 'Linux' : 'Unknown';
-    }
-    if (device.browser === 'Unknown') {
-      const m = /(Edg|OPR|Firefox|Chrome|Version)\/(\d+)/.exec(ua);
-      if (m) device.browser = `${{ Edg: 'Edge', OPR: 'Opera', Version: 'Safari' }[m[1]] || m[1]} ${m[2]}`;
-    }
-    device.local = await localStatus();
+  async function checkDevice() {
+    device = await Listen.describeDevice();
+    localStatusText = await localStatus();
   }
 
   // Newer Chrome can recognize speech without sending audio anywhere. The API
@@ -87,121 +71,127 @@
     } catch (error) {
       // The status below says whether it worked.
     }
-    device.local = await localStatus();
+    localStatusText = await localStatus();
     button.disabled = false;
     button.textContent = 'Download English for this device';
     renderDevice();
   }
 
+  // What this device is, and which ways of recognizing speech it has.
   function renderDevice() {
     $('fact-device').textContent = `${device.os} · ${device.browser}`;
     $('fact-speech').textContent = Recognition ? 'Yes' : 'No';
-    const local = {
+    $('fact-local').textContent = {
       available: 'Ready',
       downloadable: 'Can be downloaded',
       downloading: 'Downloading…',
       unavailable: 'Not on this device',
       'not available': 'Not in this browser',
-    }[device.local] || device.local;
-    $('fact-local').textContent = local;
-    $('local-row').hidden = device.local !== 'available';
-    $('install-local').hidden = device.local !== 'downloadable';
-    if (!meter.stream && !micCheck) {
-      $('mic-readout').textContent = 'Tap Test the mic, then have your child say something from where they’ll sit. The bar should jump when they talk.'
-        + (canShareMic() ? ' It also shows while the page listens for words.' : ' On this device it can’t run while the page listens for words, so check here first.');
+    }[localStatusText] || localStatusText;
+    const old = Listen.isOldAndroid(device);
+    $('fact-old').hidden = !old;
+    if (old) {
+      $('fact-old-text').textContent = `This is Android ${device.android}. Reading practice is meant for Android ${Listen.OLD_ANDROID} or newer, `
+        + 'so it may not work as well here. The results will show how it does.';
     }
-    if (!Recognition) {
-      $('unsupported').hidden = false;
-      $('unsupported').textContent = window.isSecureContext
+    $('engine-device-row').hidden = localStatusText !== 'available';
+    $('install-local').hidden = localStatusText !== 'downloadable';
+    $('engine-vosk-row').hidden = !vosk.supported;
+    $('engine-online').disabled = !Recognition;
+    if (engine === 'device' && localStatusText !== 'available') chooseEngine(Recognition ? 'online' : 'vosk');
+    renderMicHelp();
+    renderEngine();
+  }
+
+  // ---------- which recognizer ----------
+
+  let voskNote = '';
+
+  function chooseEngine(value) {
+    engine = value;
+    const box = document.querySelector(`input[name="engine"][value="${value}"]`);
+    if (box) box.checked = true;
+    if (engine === 'vosk' && vosk.state !== 'ready' && vosk.state !== 'loading') loadVosk();
+    renderMicHelp();
+    renderEngine();
+  }
+
+  function loadVosk() {
+    voskNote = 'Getting Vosk ready…';
+    vosk.load((step) => {
+      if (step.phase === 'model') {
+        const mb = (bytes) => Math.round(bytes / 1e6);
+        voskNote = step.total
+          ? `Downloading English for Vosk: ${mb(step.loaded)} of ${mb(step.total)} MB. This only happens the first time.`
+          : `Downloading English for Vosk: ${mb(step.loaded)} MB. This only happens the first time.`;
+      } else if (step.phase === 'unpack') {
+        voskNote = 'Unpacking English…';
+      }
+      renderEngine();
+    }).then(
+      () => {
+        voskNote = 'Ready. Vosk only listens for the packet’s words, and no audio leaves this device.';
+        renderEngine();
+      },
+      () => {
+        voskNote = `Vosk couldn’t load (${vosk.error}).`;
+        renderEngine();
+      }
+    );
+    renderEngine();
+  }
+
+  function renderEngine() {
+    let ready;
+    let note;
+    if (engine === 'vosk') {
+      ready = vosk.state === 'ready';
+      note = voskNote;
+    } else if (engine === 'device') {
+      ready = Boolean(Recognition);
+      note = 'Chrome recognizes the words on this device. No audio is sent.';
+    } else {
+      ready = Boolean(Recognition);
+      note = Recognition ? 'Chrome sends the audio to Google to recognize it.' : '';
+    }
+    $('engine-status').textContent = note;
+    $('vosk-retry').hidden = !(engine === 'vosk' && vosk.state === 'failed');
+    $('begin').disabled = !ready;
+    const problem = $('unsupported');
+    if (!Recognition && !vosk.supported) {
+      problem.textContent = window.isSecureContext
         ? "This browser can't recognize speech. Open this page in Chrome."
         : 'Speech recognition only works on pages opened over https.';
-      $('begin').disabled = true;
+    } else if (!Recognition && engine !== 'vosk') {
+      problem.textContent = "This browser can't recognize speech itself. Choose Vosk to recognize it on this device.";
+    } else {
+      problem.textContent = '';
     }
+    problem.hidden = !problem.textContent;
   }
 
   // ---------- microphone level ----------
-  // The level bar needs its own hold on the microphone. On a computer it can
-  // share the mic with speech recognition. On Android it can't (one of the two
-  // gets silence), so there it only runs for the mic check, before the words start.
+  // The level bar (in listen.js) needs a hold on the microphone. With Vosk it
+  // shows Vosk's own audio. With the browser's recognition, a computer can
+  // share the mic between the two, but Android can't (one of them gets
+  // silence), so there it only runs for the mic check, before the words start.
 
-  const METER_LOW = -70; // dB at an empty bar
-  const METER_HIGH = -10; // dB at a full bar
-  const meter = { stream: null, context: null, analyser: null, data: null, frame: 0, level: -100, peak: -100, loudest: -100, floor: null, shown: 0, error: '' };
-
-  function canShareMic() {
-    return /^(Windows|macOS|Linux|Chrome OS|Chromium OS)/.test(device.os);
-  }
-
-  async function startMeter() {
-    if (meter.stream) return true;
-    const AudioCtx = window.AudioContext || window.webkitAudioContext;
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !AudioCtx) {
-      meter.error = 'not-supported';
-      return false;
-    }
-    let context;
-    try {
-      context = new AudioCtx(); // made right away, while the tap still lets it run
-    } catch (error) {
-      meter.error = 'audio';
-      return false;
-    }
-    try {
-      // Without the browser's voice clean-up, so the bar shows what the mic really picks up.
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
-      const analyser = context.createAnalyser();
-      analyser.fftSize = 2048;
-      context.createMediaStreamSource(stream).connect(analyser);
-      if (context.state === 'suspended') await context.resume().catch(() => {});
-      Object.assign(meter, { stream, context, analyser, data: new Float32Array(analyser.fftSize), level: -100, peak: -100, loudest: -100, floor: null, error: '' });
-      meter.frame = requestAnimationFrame(tick);
-      return true;
-    } catch (error) {
-      context.close().catch(() => {});
-      meter.error = (error && error.name) || 'error';
-      return false;
-    }
-  }
-
-  function stopMeter() {
-    cancelAnimationFrame(meter.frame);
-    if (meter.stream) for (const track of meter.stream.getTracks()) track.stop();
-    if (meter.context) meter.context.close().catch(() => {});
-    Object.assign(meter, { stream: null, context: null, analyser: null, data: null, level: -100 });
-    drawMeter(0);
-  }
-
-  function tick() {
-    if (!meter.analyser) return;
-    meter.analyser.getFloatTimeDomainData(meter.data);
-    let sum = 0;
-    for (let i = 0; i < meter.data.length; i++) sum += meter.data[i] * meter.data[i];
-    const db = Math.max(-100, 10 * Math.log10(sum / meter.data.length || 1e-10));
-    // Jump up with a sound and sink back slowly, like a sound meter.
-    meter.level = db > meter.level ? db : meter.level - Math.min(meter.level - db, 0.5);
-    meter.peak = Math.max(meter.peak, db);
-    meter.loudest = Math.max(meter.loudest, db);
-    // The room's background: drops to any quieter moment and creeps back up slowly.
-    meter.floor = meter.floor === null ? db : Math.min(db, meter.floor + 0.03);
-    drawMeter((meter.level - METER_LOW) / (METER_HIGH - METER_LOW));
+  let meterShown = 0;
+  meter.onTick = () => {
     const now = performance.now();
-    if (now - meter.shown > 500 && !$('intro').hidden) {
-      meter.shown = now;
+    if (now - meterShown > 500 && !$('intro').hidden) {
+      meterShown = now;
       $('mic-readout').textContent = micReadout();
     }
-    meter.frame = requestAnimationFrame(tick);
-  }
+  };
 
-  function drawMeter(fraction) {
-    const scale = `scaleX(${Math.min(1, Math.max(0, fraction)).toFixed(3)})`;
-    for (const fill of document.querySelectorAll('.meter-fill')) fill.style.transform = scale;
-  }
+  // Whether the level bar can run while the page listens for words.
+  const barWhileListening = () => engine === 'vosk' || Listen.canShareMic(device);
 
-  // The loudest sound since the last call, or null when there's no level bar.
-  function takePeak() {
-    const peak = meter.peak;
-    meter.peak = -100;
-    return meter.stream ? peak : null;
+  function renderMicHelp() {
+    if (meter.analyser || micCheck) return;
+    $('mic-readout').textContent = 'Tap Test the mic, then have your child say something from where they’ll sit. The bar should jump when they talk.'
+      + (barWhileListening() ? ' It also shows while the page listens for words.' : ' On this device it can’t run while the page listens for words, so check here first.');
   }
 
   const dB = (value) => (typeof value === 'number' && Number.isFinite(value) ? `${Math.round(value)} dB` : '?');
@@ -213,19 +203,19 @@
   }
 
   function keepMicCheck() {
-    if (meter.stream && meter.floor !== null) micCheck = { loudest: meter.loudest, floor: meter.floor };
+    if (meter.analyser && meter.floor !== null) micCheck = { loudest: meter.loudest, floor: meter.floor };
   }
 
   async function toggleMicTest() {
     const button = $('mic-test');
-    if (meter.stream) {
+    if (meter.analyser) {
       keepMicCheck();
-      stopMeter();
+      Listen.stopMeter();
       button.textContent = 'Test the mic';
       return;
     }
     button.disabled = true;
-    const ok = await startMeter();
+    const ok = await Listen.startMeter();
     button.disabled = false;
     if (ok) {
       button.textContent = 'Stop the mic test';
@@ -269,15 +259,26 @@
   async function begin() {
     if (starting) return;
     starting = true;
-    useLocal = $('local').checked && device.local === 'available';
     keepMicCheck();
     $('mic-test').textContent = 'Test the mic';
-    if (canShareMic()) {
-      liveRun = await startMeter(); // keeps the mic check's bar going, or starts one
+    runEngine = engine;
+    if (engine === 'vosk') {
+      // Vosk opens the mic itself, and the level bar shows what it hears.
+      Listen.stopMeter();
+      liveRun = await vosk.open();
+      if (!liveRun) {
+        starting = false;
+        const problem = $('unsupported');
+        problem.textContent = messageFor({ NotAllowedError: 'not-allowed', NotFoundError: 'audio-capture' }[vosk.error] || vosk.error);
+        problem.hidden = false;
+        return;
+      }
+    } else if (Listen.canShareMic(device)) {
+      liveRun = await Listen.startMeter(); // keeps the mic check's bar going, or starts one
     } else {
       liveRun = false;
-      if (meter.stream) {
-        stopMeter();
+      if (meter.analyser) {
+        Listen.stopMeter();
         // Let go of the mic before speech recognition asks for it.
         await new Promise((resolve) => setTimeout(resolve, 400));
       }
@@ -336,12 +337,12 @@
     stopListening();
     const item = items[index];
     const result = results[index];
-    const rec = new Recognition();
+    const rec = runEngine === 'vosk' ? vosk.recognition(VOSK_WORDS) : new Recognition();
     rec.lang = 'en-US';
     rec.interimResults = true;
     rec.maxAlternatives = 5;
     rec.continuous = false;
-    if (useLocal) {
+    if (runEngine === 'device') {
       if ('processLocally' in rec) rec.processLocally = true;
       else if ('mode' in rec) rec.mode = 'ondevice-only';
     }
@@ -351,7 +352,7 @@
     const attempt = { heard: [], confidence: null, ok: false, ms: null, readyMs: null, soundMs: null, hit: null, last: null, error: '' };
     const started = performance.now();
     const since = () => Math.round(performance.now() - started);
-    takePeak(); // the level bar's loudest, from here on
+    Listen.takePeak(); // the level bar's loudest, from here on
     let settled = false;
     let live = false;
     let timeUp = false;
@@ -382,7 +383,7 @@
       if (session === rec) session = null;
       reveal();
       if (attempt.ms === null) attempt.ms = since();
-      attempt.peak = takePeak();
+      attempt.peak = Listen.takePeak();
       // No final answer came, but the latest partial result had the word: count it.
       if (!attempt.heard.length && attempt.last && (!attempt.error || QUIET.has(attempt.error)) && Reading.heardIt(item.word, [attempt.last.text])) {
         attempt.ok = true;
@@ -440,9 +441,11 @@
         const res = event.results[i];
         if (res.isFinal) {
           const guesses = [];
-          for (let j = 0; j < res.length; j++) guesses.push({ text: String(res[j].transcript).trim(), confidence: res[j].confidence });
+          for (let j = 0; j < res.length; j++) guesses.push({ text: String(res[j].transcript).trim(), confidence: res[j].confidence, unknown: res[j].unknown });
           attempt.heard = guesses.map((g) => g.text).filter(Boolean);
           attempt.confidence = guesses.length ? guesses[0].confidence : null;
+          // Vosk also says how many other words it heard, which it can't name.
+          if (guesses.length && typeof guesses[0].unknown === 'number') attempt.unknown = guesses[0].unknown;
           attempt.ms = since();
           attempt.match = Reading.heardIt(item.word, attempt.heard);
           attempt.ok = attempt.match !== null;
@@ -497,7 +500,9 @@
       'service-not-allowed': 'Chrome isn’t allowed to use speech recognition here.',
       'audio-capture': 'No microphone was found.',
       network: 'Speech recognition needs an internet connection.',
-      'language-not-supported': 'This device can’t recognize English this way. Try without “Recognize on this device”.',
+      'language-not-supported': 'This device can’t recognize English this way. Choose another way to recognize speech.',
+      'not-ready': 'Vosk isn’t ready yet.',
+      recognizer: 'Vosk ran into a problem. Tap Try again.',
     }[code] || `Something went wrong (${code}). Tap Try again.`;
   }
 
@@ -545,6 +550,11 @@
 
   // ---------- results ----------
 
+  function engineText(name) {
+    if (name === 'vosk') return `by Vosk on this device (${vosk.info.name})`;
+    return name === 'device' ? 'by Chrome on this device' : 'by Google (online)';
+  }
+
   function seconds(ms) {
     return ms === null ? '?' : `${(ms / 1000).toFixed(1)} s`;
   }
@@ -565,6 +575,7 @@
     if (t.soundMs !== null) notes.push(`sound ${seconds(t.soundMs)}`);
     const partial = t.hit || t.last;
     if (partial) notes.push(`partial "${partial.text}" ${seconds(partial.ms)}`);
+    if (typeof t.unknown === 'number' && t.unknown > 0) notes.push(`${t.unknown} other ${t.unknown === 1 ? 'word' : 'words'}`);
     if (typeof t.peak === 'number') notes.push(`loudest ${dB(t.peak)}`);
     return `${outcome}, ${seconds(t.ms)}${notes.length ? ` [${notes.join(', ')}]` : ''}`;
   }
@@ -615,7 +626,7 @@
     const lines = [
       `Times Up speech check (version ${PAGE_VERSION}), ${new Date().toLocaleString()}`,
       `Device: ${device.os}, ${device.browser}`,
-      `Recognizing: ${useLocal ? 'on this device' : 'by Google (online)'}; on-device status: ${device.local}`,
+      `Recognizing: ${engineText(runEngine)}; Chrome on-device status: ${localStatusText}`,
       `Understood on the first try: ${first} of ${n}. With more tries: ${any} of ${n}.${marked ? ` Marked right by a grown-up: ${marked}.` : ''}`,
       micText(),
       micLevelText(),
@@ -634,7 +645,8 @@
 
   function finish() {
     stopListening();
-    stopMeter();
+    Listen.stopMeter();
+    vosk.close();
     const { first, any, marked } = summary();
     $('score').textContent = `Understood ${first} of ${results.length} words on the first try, and ${any} with more tries.`
       + (marked ? ` You marked ${marked} more as right.` : '');
@@ -694,8 +706,13 @@
   $('restart').addEventListener('click', () => show('intro'));
   $('install-local').addEventListener('click', installLocal);
   $('mic-test').addEventListener('click', toggleMicTest);
-  window.addEventListener('pagehide', stopMeter);
+  window.addEventListener('pagehide', () => {
+    Listen.stopMeter();
+    vosk.close();
+  });
+  for (const box of document.querySelectorAll('input[name="engine"]')) box.addEventListener('change', () => chooseEngine(box.value));
+  $('vosk-retry').addEventListener('click', () => chooseEngine('vosk'));
 
-  if (!Recognition) renderDevice(); // say so right away; the rest fills in once the device has been checked
-  describeDevice().then(renderDevice, renderDevice);
+  renderDevice(); // say what's known right away; the rest fills in once the device has been checked
+  checkDevice().then(renderDevice, renderDevice);
 })();

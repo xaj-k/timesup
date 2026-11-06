@@ -21,6 +21,11 @@
     .facts dt { color: var(--ink-soft); font-weight: 700; }
     .facts dd { margin: 0; }
     .check-local { display: flex; align-items: center; gap: 10px; font-weight: 700; cursor: pointer; }
+    .check-local[hidden] { display: none; }
+    .engines { display: grid; gap: 10px; margin: 0; padding: 0; border: 0; }
+    .engines legend { padding: 0; margin-bottom: 4px; }
+    .engines .btn-small { justify-self: start; }
+    .fact-old dd { color: var(--wrong-text); }
     .check-local input { width: 22px; height: 22px; accent-color: var(--pen); }
     .problem { color: var(--wrong-text); font-weight: 700; }
     .speech-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -78,7 +83,8 @@
         <dl class="facts" id="facts">
           <div><dt>This device</dt><dd id="fact-device">Checking…</dd></div>
           <div><dt>Speech recognition</dt><dd id="fact-speech">Checking…</dd></div>
-          <div><dt>Recognizing on this device</dt><dd id="fact-local">Checking…</dd></div>
+          <div><dt>Chrome on this device</dt><dd id="fact-local">Checking…</dd></div>
+          <div class="fact-old" id="fact-old" hidden><dt>Heads up</dt><dd id="fact-old-text"></dd></div>
         </dl>
         <div class="mic-check">
           <div class="mic-check-head">
@@ -88,8 +94,15 @@
           <span class="meter" id="mic-meter" aria-hidden="true"><span class="meter-fill"></span></span>
           <p class="field-help" id="mic-readout" aria-live="polite">Tap Test the mic, then have your child say something from where they'll sit. The bar should jump when they talk.</p>
         </div>
-        <label class="check-local" id="local-row" hidden><input type="checkbox" id="local"> Recognize on this device (no audio sent)</label>
-        <button type="button" class="btn-small btn-soft" id="install-local" hidden>Download English for this device</button>
+        <fieldset class="engines">
+          <legend class="label">Recognize speech with</legend>
+          <label class="check-local"><input type="radio" name="engine" value="online" id="engine-online" checked> Google, online</label>
+          <label class="check-local" id="engine-device-row" hidden><input type="radio" name="engine" value="device"> Chrome, on this device</label>
+          <label class="check-local" id="engine-vosk-row"><input type="radio" name="engine" value="vosk"> Vosk, on this device (a 41&nbsp;MB download the first time)</label>
+          <p class="field-help" id="engine-status" aria-live="polite"></p>
+          <button type="button" class="btn-small btn-soft" id="vosk-retry" hidden>Try loading Vosk again</button>
+          <button type="button" class="btn-small btn-soft" id="install-local" hidden>Download English for Chrome on this device</button>
+        </fieldset>
         <p class="problem" id="unsupported" hidden></p>
         <button type="button" class="btn btn-go" id="begin">Start</button>
       </div>
@@ -134,6 +147,7 @@
   </div>
 
   <script src="reading.js"></script>
+  <script src="listen.js"></script>
   <script src="speech-test.js"></script>
 </body>
 </html>

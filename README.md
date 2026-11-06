@@ -127,7 +127,15 @@ Any other static host with HTTPS works too, such as [Netlify Drop](https://app.n
 
 A mic check on the first screen shows a sound level bar: how loud the child sounds, and how noisy the room is. On a computer the bar also shows while the page listens for words. On Android it can't, because the level bar and speech recognition can't share the microphone there (one of them gets silence). So on Android the bar stops before the words start, and while listening the board says "Hearing sound…" whenever speech recognition picks up sound.
 
-Chrome sends the audio to Google to recognize it, unless the device can recognize speech itself (newer Chrome), which the page offers when it's available. Words that sound the same count as right: "two" heard as "to" or "2" is fine, and so is "a" heard as "hey".
+The first screen picks how speech is recognized:
+
+- **Google, online**: Chrome sends the audio to Google.
+- **Chrome, on this device**: offered when newer Chrome can recognize speech itself.
+- **Vosk, on this device**: [Vosk](https://alphacephei.com/vosk/) runs inside the page, so no audio leaves the device. It listens only for the packet's words, plus "anything else". The first time, it downloads 41 MB (its code and a small English model, in `vendor/vosk`), and the page shows how far along that is. After that the browser keeps it. Vosk also works in browsers that can't recognize speech themselves, like Firefox. With Vosk the level bar shows while listening on Android too, because Vosk and the bar share one hold on the mic.
+
+On Android older than 13, the page notes that reading practice is meant for Android 13 or newer.
+
+Words that sound the same count as right: "two" heard as "to" or "2" is fine, and so is "a" heard as "hey".
 
 ## Files
 
@@ -137,6 +145,8 @@ Chrome sends the audio to Google to recognize it, unless the device can recogniz
 - `players.js`: players and saved history
 - `insights.js`: what the history says (fact levels, trends, suggestions), with no page code
 - `reading.js`: sight words and phonics words, and matching what speech recognition heard; `speech-test.html` and `speech-test.js`: the speech check page
+- `listen.js`: speech recognition (the browser's, or Vosk), the mic level bar, and which device this is
+- `vendor/vosk/`: Vosk for recognizing speech on the device (see its README)
 - `app.js`: screens, timer, sound effects and the progress report
 - `manifest.webmanifest`, `sw.js`, `pwa.js`, `icons/`: what makes it installable and work offline
 - `fonts/`: Lilita One and Andika (SIL Open Font License; see the `OFL-*.txt` files)
