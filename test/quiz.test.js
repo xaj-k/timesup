@@ -379,6 +379,8 @@
     same(Reading.heardIt('two', ['to']), 'to', 'a word that sounds the same');
     same(Reading.heardIt('there', ["They're"]), "They're", 'capitals and apostrophes');
     same(Reading.heardIt('I', ['eye']), 'eye', 'the word I');
+    same(Reading.heardIt('a', ['hey']), 'hey', 'a said as "ay"');
+    same(Reading.heardIt('I', ['I bye', 'Bye']), 'I bye', 'a word said twice, heard as two');
     same(Reading.heardIt('in', ['into']), null, 'a longer word is a different word');
     same(Reading.heardIt('ship', ['sheep', 'chip']), null, 'a near miss is a miss');
     same(Reading.heardIt('said', []), null, 'nothing heard');

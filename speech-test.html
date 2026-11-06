@@ -25,21 +25,37 @@
     .problem { color: var(--wrong-text); font-weight: 700; }
     .speech-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
     .speech-kind { color: var(--ink-soft); font-weight: 700; }
-    .speech-word { font-size: clamp(64px, min(20vw, 18vh), 140px); }
+    .speech-word { font-size: clamp(64px, min(20vw, 18vh), 140px); transition: opacity 0.15s ease-out; }
+    /* A new word waits, invisible, until the microphone is on, so its first sound isn't lost. */
+    .speech-word.is-waiting { opacity: 0; transition: none; }
     .speech-word .sound-part { color: var(--sun); text-decoration: underline; text-decoration-thickness: 0.08em; text-underline-offset: 0.12em; }
     .listen { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 28px; color: var(--chalk-soft); font-weight: 700; }
-    .listen-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--time-low); }
-    .listen[hidden] { display: none !important; }
-    .listen:not([hidden]) .listen-dot { animation: pulse 1s ease-in-out infinite; }
+    .listen-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--chalk-soft); opacity: 0.45; }
+    /* Hidden but still taking its space, so the buttons below don't jump when listening starts and stops. */
+    .listen[hidden] { display: flex !important; visibility: hidden; }
+    .listen.is-on .listen-dot { background: var(--time-low); opacity: 1; animation: pulse 1s ease-in-out infinite; }
+    /* Microphone level: a bar that fills as the sound gets louder. */
+    .meter { position: relative; display: block; height: 14px; border-radius: 7px; background: var(--rule); overflow: hidden; }
+    .meter-fill { position: absolute; inset: 0; border-radius: inherit; background: var(--series); transform: scaleX(0); transform-origin: left center; }
+    .meter-board { flex: 0 0 96px; height: 10px; background: rgba(255, 255, 255, 0.16); }
+    .meter-board .meter-fill { background: var(--chalk); }
+    .mic-check { display: grid; gap: 10px; padding: 14px 16px; border-radius: var(--radius-sm); background: var(--card-sunk); }
+    .mic-check-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
+    .mic-check .label { color: var(--ink); }
     @keyframes pulse { 50% { transform: scale(0.6); opacity: 0.5; } }
+    @media (prefers-reduced-motion: reduce) {
+      .speech-word { transition: none; }
+      .listen.is-on .listen-dot { animation: none; }
+    }
     .heard { min-height: 1.4em; color: var(--ink-soft); text-align: center; }
-    .speech .actions .btn { flex: 1 1 140px; font-size: 22px; }
+    .speech .actions .btn { flex: 1 1 160px; padding-inline: 12px; font-size: 20px; }
     .result-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
     .result-list li { display: grid; gap: 2px; padding: 10px 14px; border-radius: var(--radius-sm); background: var(--card-sunk); }
     .result-word { font-family: var(--font-display); font-size: 22px; }
     .result-note { color: var(--ink-soft); font-size: 15px; }
     .result-list .is-ok .result-word::before { content: "✓ "; color: var(--right-text); }
     .result-list .is-miss .result-word::before { content: "✗ "; color: var(--wrong-text); }
+    .result-list .is-said .result-word::before { content: "✓ "; color: var(--ink-soft); }
     #results-text { width: 100%; min-height: 160px; font: 13px/1.4 ui-monospace, monospace; color: var(--ink); background: var(--card-sunk); border: 1px solid var(--rule); border-radius: var(--radius-sm); padding: 10px; }
   </style>
 </head>
@@ -56,13 +72,22 @@
     <!-- Before starting: what this is, and what this device can do -->
     <section class="screen" id="intro">
       <div class="panel">
-        <p>Your child reads 20 words out loud, one at a time: sight words, and phonics words with the sound to practice highlighted. The page listens and shows what it heard, and at the end you get the results to send back.</p>
+        <p>Your child reads 20 words out loud, one at a time: sight words, and phonics words with the sound to practice highlighted. Each word appears once the microphone is on. The page shows what it heard, and if it didn't catch the word it listens again by itself. At the end you get the results to send back.</p>
+        <p>If your child reads a word right and the page doesn't get it, tap <strong>Said it right</strong>.</p>
         <p class="field-help">Chrome sends the audio to Google to recognize it, unless you choose to recognize on this device below. Nothing is saved after you close the page.</p>
         <dl class="facts" id="facts">
           <div><dt>This device</dt><dd id="fact-device">Checking…</dd></div>
           <div><dt>Speech recognition</dt><dd id="fact-speech">Checking…</dd></div>
           <div><dt>Recognizing on this device</dt><dd id="fact-local">Checking…</dd></div>
         </dl>
+        <div class="mic-check">
+          <div class="mic-check-head">
+            <p class="label">Mic check</p>
+            <button type="button" class="btn-small btn-soft" id="mic-test">Test the mic</button>
+          </div>
+          <span class="meter" id="mic-meter" aria-hidden="true"><span class="meter-fill"></span></span>
+          <p class="field-help" id="mic-readout" aria-live="polite">Tap Test the mic, then have your child say something from where they'll sit. The bar should jump when they talk.</p>
+        </div>
         <label class="check-local" id="local-row" hidden><input type="checkbox" id="local"> Recognize on this device (no audio sent)</label>
         <button type="button" class="btn-small btn-soft" id="install-local" hidden>Download English for this device</button>
         <p class="problem" id="unsupported" hidden></p>
@@ -78,13 +103,14 @@
       </div>
       <div class="board">
         <p class="question speech-word" id="word" aria-live="polite"></p>
-        <p class="listen" id="listening" hidden><span class="listen-dot" aria-hidden="true"></span>Listening…</p>
+        <p class="listen" id="listening" hidden><span class="listen-dot" aria-hidden="true"></span><span id="listen-text">Listening…</span><span class="meter meter-board" id="run-meter" aria-hidden="true" hidden><span class="meter-fill"></span></span></p>
       </div>
       <p class="feedback" id="status" role="status"></p>
       <p class="heard" id="heard"></p>
       <div class="actions">
         <button type="button" class="btn btn-quiet" id="again">Try again</button>
         <button type="button" class="btn btn-quiet" id="hear">Hear it</button>
+        <button type="button" class="btn btn-quiet" id="said">Said it right</button>
         <button type="button" class="btn btn-go" id="next">Next</button>
       </div>
     </section>

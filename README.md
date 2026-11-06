@@ -123,9 +123,11 @@ Any other static host with HTTPS works too, such as [Netlify Drop](https://app.n
 
 ## Speech check (a trial for reading practice)
 
-`speech-test.html`, at https://xaj-k.github.io/timesup/speech-test.html, checks how well a device's speech recognition understands a child reading 20 words out loud: sight words, and phonics words with the sound pattern highlighted. The words come from the class's phonics homework packet (`reading.js`). The page shows the device's Android and Chrome versions, what it heard for each word, and results to copy or send. It isn't part of the app yet, and it saves nothing.
+`speech-test.html`, at https://xaj-k.github.io/timesup/speech-test.html, checks how well a device's speech recognition understands a child reading 20 words out loud: sight words, and phonics words with the sound pattern highlighted. The words come from the class's phonics homework packet (`reading.js`). Each word appears once the microphone is on, so its first sound isn't cut off. If the page hears nothing or a different word, it listens again by itself, up to three more times. A grown-up can tap Said it right when the child read a word right but the page didn't get it. At the end the page gives results to copy or send: the device's Android and browser versions, what it heard for each word, and how long the microphone took to turn on. It isn't part of the app yet, and it saves nothing.
 
-Chrome sends the audio to Google to recognize it, unless the device can recognize speech itself (newer Chrome), which the page offers when it's available. Words that sound the same count as right: "two" heard as "to" or "2" is fine.
+A mic check on the first screen shows a sound level bar: how loud the child sounds, and how noisy the room is. On a computer the bar also shows while the page listens for words. On Android it can't, because the level bar and speech recognition can't share the microphone there (one of them gets silence). So on Android the bar stops before the words start, and while listening the board says "Hearing sound…" whenever speech recognition picks up sound.
+
+Chrome sends the audio to Google to recognize it, unless the device can recognize speech itself (newer Chrome), which the page offers when it's available. Words that sound the same count as right: "two" heard as "to" or "2" is fine, and so is "a" heard as "hey".
 
 ## Files
 

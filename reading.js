@@ -38,7 +38,8 @@
   // Other ways speech recognition writes a word that sounds the same.
   // Saying any of these is reading the word right.
   const SOUNDS_LIKE = {
-    a: ['uh', 'ah', 'ay'],
+    // "a" said as "ay" often comes back as "hey"; a lone "uh" is usually dropped as a filler sound.
+    a: ['uh', 'ah', 'ay', 'hey', 'hay', 'eh'],
     i: ['eye', 'aye'],
     one: ['1', 'won'],
     two: ['2', 'to', 'too'],
