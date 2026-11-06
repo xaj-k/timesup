@@ -8,7 +8,7 @@
 
   const Reading = window.Reading;
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  const PAGE_VERSION = 2; // in the results, so it's clear which page made them
+  const PAGE_VERSION = 3; // in the results, so it's clear which page made them
   const PAUSE_AFTER_RIGHT = 900; // ms before the next word
   const LISTEN_LIMIT = 8000; // ms; stop listening after this if the browser hasn't
   const READY_LIMIT = 1500; // ms; show the word by then, even if the browser never says the mic is on
@@ -345,8 +345,10 @@
       if ('processLocally' in rec) rec.processLocally = true;
       else if ('mode' in rec) rec.mode = 'ondevice-only';
     }
-    // readyMs: when the browser said the mic was on. sound: whether it noticed any sound.
-    const attempt = { heard: [], confidence: null, ok: false, ms: null, readyMs: null, sound: false, error: '' };
+    // readyMs: when the browser said the mic was on. soundMs: when it first noticed sound.
+    // Partial results are its guesses before the final one: hit is the first that had
+    // the word, last the latest. Each is { text, ms }.
+    const attempt = { heard: [], confidence: null, ok: false, ms: null, readyMs: null, soundMs: null, hit: null, last: null, error: '' };
     const started = performance.now();
     const since = () => Math.round(performance.now() - started);
     takePeak(); // the level bar's loudest, from here on
@@ -381,6 +383,12 @@
       reveal();
       if (attempt.ms === null) attempt.ms = since();
       attempt.peak = takePeak();
+      // No final answer came, but the latest partial result had the word: count it.
+      if (!attempt.heard.length && attempt.last && (!attempt.error || QUIET.has(attempt.error)) && Reading.heardIt(item.word, [attempt.last.text])) {
+        attempt.ok = true;
+        attempt.fromPartial = true;
+        attempt.match = attempt.last.text;
+      }
       result.tries.push(attempt);
       const at = index;
       const silent = !attempt.heard.length;
@@ -418,7 +426,7 @@
     };
     rec.onsoundstart = rec.onspeechstart = () => {
       if (rec.cancelled) return;
-      attempt.sound = true;
+      if (attempt.soundMs === null) attempt.soundMs = since();
       goLive();
       if (!settled) cue('sound');
     };
@@ -444,7 +452,19 @@
         interim += res[0].transcript;
       }
       goLive();
-      if (interim.trim()) setHint(`Hearing “${interim.trim()}”…`);
+      interim = interim.trim();
+      if (interim) {
+        const partial = { text: interim, ms: since() };
+        attempt.last = partial;
+        if (!attempt.hit && Reading.heardIt(item.word, [interim])) attempt.hit = partial;
+        setHint(`Hearing “${interim}”…`);
+      }
+    };
+    // Heard sound, but couldn't make it into words. Chrome reports this as its own event, not an error.
+    rec.onnomatch = () => {
+      if (rec.cancelled) return;
+      attempt.error = 'no-match';
+      settle();
     };
     rec.onerror = (event) => {
       if (rec.cancelled) return;
@@ -529,16 +549,24 @@
     return ms === null ? '?' : `${(ms / 1000).toFixed(1)} s`;
   }
 
+  // One try: what came of it and when it ended, then [when sound started, a partial result, how loud].
   function attemptText(t) {
-    if (t.error) {
-      const notes = [];
-      if (t.sound) notes.push('sound');
-      if (typeof t.peak === 'number') notes.push(`loudest ${dB(t.peak)}`);
-      return notes.length ? `${t.error} (${notes.join(', ')})` : t.error;
+    let outcome;
+    if (t.fromPartial) {
+      outcome = `✓ partial${t.error ? ` (${t.error})` : ''}`;
+    } else if (t.error) {
+      outcome = t.error;
+    } else {
+      const heard = t.heard.length ? t.heard.slice(0, 3).map((h) => `"${h}"`).join(', ') : 'nothing';
+      const sure = typeof t.confidence === 'number' && t.confidence > 0 ? ` ${t.confidence.toFixed(2)}` : '';
+      outcome = `${t.ok ? '✓' : '✗'} ${heard}${sure}`;
     }
-    const heard = t.heard.length ? t.heard.slice(0, 3).map((h) => `"${h}"`).join(', ') : 'nothing';
-    const sure = typeof t.confidence === 'number' && t.confidence > 0 ? ` ${t.confidence.toFixed(2)}` : '';
-    return `${t.ok ? '✓' : '✗'} ${heard}${sure}, ${seconds(t.ms)}`;
+    const notes = [];
+    if (t.soundMs !== null) notes.push(`sound ${seconds(t.soundMs)}`);
+    const partial = t.hit || t.last;
+    if (partial) notes.push(`partial "${partial.text}" ${seconds(partial.ms)}`);
+    if (typeof t.peak === 'number') notes.push(`loudest ${dB(t.peak)}`);
+    return `${outcome}, ${seconds(t.ms)}${notes.length ? ` [${notes.join(', ')}]` : ''}`;
   }
 
   const understood = (r) => r.tries.some((t) => t.ok);
@@ -562,6 +590,20 @@
       + (missing ? `; not reported ${missing} of ${tries.length} times.` : '.');
   }
 
+  // How often partial results came, and how much sooner than the final result they had the word.
+  function partialText() {
+    const tries = results.flatMap((r) => r.tries);
+    if (!tries.length) return 'Partial results: no tries.';
+    const came = tries.filter((t) => t.last).length;
+    if (!came) return `Partial results: none in ${tries.length} tries.`;
+    const leads = tries.filter((t) => t.ok && !t.fromPartial && t.hit).map((t) => t.ms - t.hit.ms).sort((a, b) => a - b);
+    const parts = [`in ${came} of ${tries.length} tries`];
+    if (leads.length) parts.push(`had the word before a right final result ${leads.length} times, typically ${seconds(leads[Math.floor((leads.length - 1) / 2)])} sooner`);
+    parts.push(`counted with no final result: ${tries.filter((t) => t.fromPartial).length}`);
+    parts.push(`had the word when the try didn't count: ${tries.filter((t) => t.hit && !t.ok).length}`);
+    return `Partial results: ${parts.join('; ')}.`;
+  }
+
   function micLevelText() {
     const before = micCheck ? `checked before starting: loudest ${dB(micCheck.loudest)}, room ${dB(micCheck.floor)}` : 'not checked before starting';
     return `Mic level: ${before}; ${liveRun ? 'shown while listening' : 'not shown while listening'}.`;
@@ -577,6 +619,7 @@
       `Understood on the first try: ${first} of ${n}. With more tries: ${any} of ${n}.${marked ? ` Marked right by a grown-up: ${marked}.` : ''}`,
       micText(),
       micLevelText(),
+      partialText(),
       '',
     ];
     for (const r of results) {
