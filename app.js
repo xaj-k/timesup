@@ -1,12 +1,16 @@
 /*
  * Times Up: screens, timer and sound. The quiz rules are in quiz.js, saved
  * history in players.js, and what that history says in insights.js.
+ * Reading practice: words and rounds in reading.js (from lessons.js), the
+ * reading screen in reader.js, and listening in listen.js.
  */
 (function () {
   'use strict';
 
   const Quiz = window.Quiz;
   const Insights = window.Insights;
+  const Reading = window.Reading;
+  const Listen = window.Listen;
   const STORAGE_KEY = 'timesup.settings';
   const PAUSE_AFTER_RIGHT = 900; // ms before the next question
   const PAUSE_AFTER_MISS = 2400; // longer, so there is time to read the right answer
@@ -16,15 +20,22 @@
   const LEVEL_NAMES = { mastered: 'Got it', learning: 'Getting there', practice: 'Needs practice', new: 'Not tried yet' };
 
   const $ = (id) => document.getElementById(id);
-  const screens = { setup: $('setup'), game: $('game'), results: $('results'), report: $('report') };
+  const screens = { setup: $('setup'), game: $('game'), read: $('read'), results: $('results'), report: $('report') };
   const form = $('settings-form');
   const tilesBox = $('tiles');
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
   const dayFormat = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' });
   const whenFormat = new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
-  let settings = loadSettings();
+  const saved = loadSaved();
+  let settings = Quiz.sanitizeSettings(saved);
+  let activity = saved && saved.activity === 'read' ? 'read' : 'math'; // what the setup screen is set up for
+  let reading = Reading.sanitizeSettings(saved && saved.reading);
   let round = null;
+  let readRound = null; // the reading round in progress: who, its record, and how it's saved
+  let lastPlayed = 'math'; // what "Play again" plays
+  let device = null; // what Listen.describeDevice() found out
+  let voskNote = ''; // how loading Vosk is going
   let store = null; // where player history is kept, once Players.openStore() answers
   let players = [];
   let storeProblem = '';
@@ -77,17 +88,18 @@
 
   // ---------- saved settings (best effort: storage can be blocked) ----------
 
-  function loadSettings() {
+  function loadSaved() {
     try {
-      return Quiz.sanitizeSettings(JSON.parse(localStorage.getItem(STORAGE_KEY)));
+      const raw = JSON.parse(localStorage.getItem(STORAGE_KEY));
+      return raw && typeof raw === 'object' ? raw : null;
     } catch (error) {
-      return Quiz.sanitizeSettings(null);
+      return null;
     }
   }
 
   function saveSettings() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...settings, activity, reading }));
     } catch (error) {
       // Settings just won't be remembered next time.
     }
@@ -292,7 +304,19 @@
   }
 
   function renderSetup() {
-    form.elements.operation.value = settings.operation;
+    const reads = activity === 'read';
+    form.elements.operation.value = reads ? 'read' : settings.operation;
+    $('math-fields').hidden = reads;
+    $('read-fields').hidden = !reads;
+    $('math-preview').hidden = reads;
+    $('read-preview').hidden = !reads;
+    $('chart-label').textContent = reads ? 'On this page' : 'In this quiz';
+    if (reads) renderReadSetup();
+    else renderMathSetup();
+    renderSetupState();
+  }
+
+  function renderMathSetup() {
     $('tables-label').textContent = adding() ? 'Numbers' : 'Times tables';
     $('multiply-label').textContent = adding() ? 'Added to' : 'Multiplied by';
     const sign = symbolOf(settings.operation);
@@ -305,10 +329,13 @@
     form.elements.mode.value = settings.timed ? 'timed' : 'relaxed';
     form.elements.seconds.value = String(settings.seconds);
     form.elements.count.value = String(settings.count);
-    renderSetupState();
   }
 
   function renderSetupState() {
+    if (activity === 'read') {
+      renderReadState();
+      return;
+    }
     const facts = Quiz.factsFor(settings);
     const player = currentPlayer();
     const focus = effectiveFocus();
@@ -368,14 +395,224 @@
     saveSettings();
   }
 
-  function chooseOperation(operation) {
-    switchOperation(operation);
+  // Multiplication, addition or reading.
+  function chooseActivity(value) {
+    if (value === 'read') {
+      activity = 'read';
+    } else {
+      activity = 'math';
+      switchOperation(value);
+    }
+    saveSettings();
     renderSetup();
+    renderPlayerHelp();
   }
 
   function setAllTables(on) {
     for (const box of form.elements.table) box.checked = on;
     readSetup();
+  }
+
+  // ---------- reading setup ----------
+
+  const PART_NOUNS = { words: ['word', 'words'], sounds: ['sound', 'sounds'], sentences: ['sentence', 'sentences'] };
+
+  function buildReadSetup() {
+    $('read-count-pills').innerHTML = Reading.COUNTS.map((n) =>
+      `<label class="pill"><input type="radio" name="readCount" value="${n}" id="read-count-${n}"><span>${n || 'Whole page'}</span></label>`
+    ).join('');
+    $('read-page').min = String(Reading.FIRST_PAGE);
+    $('read-page').max = String(Reading.LAST_PAGE);
+  }
+
+  function renderReadSetup() {
+    // A browser that can't recognize speech itself can't check online.
+    if (reading.engine === 'online' && !Listen.BrowserRecognition) reading.engine = 'off';
+    $('read-page').value = String(reading.page);
+    form.elements.part.value = reading.part;
+    form.elements.readCount.value = String(reading.count);
+    form.elements.engine.value = reading.engine;
+  }
+
+  function readReadingSetup(changed) {
+    const typed = Math.round(Number($('read-page').value));
+    const page = Number.isFinite(typed) && typed > 0 ? Math.min(Reading.LAST_PAGE, Math.max(Reading.FIRST_PAGE, typed)) : reading.page;
+    reading = Reading.sanitizeSettings({
+      page,
+      part: form.elements.part.value,
+      count: Number(form.elements.readCount.value),
+      // While Weak spots can't be used, keep the choice for later.
+      focus: $('read-focus-weak').disabled ? reading.focus : form.elements.readFocus.value,
+      engine: form.elements.engine.value,
+    });
+    if (changed === $('read-page')) $('read-page').value = String(reading.page);
+    if (reading.engine === 'vosk' && Listen.vosk.state === 'idle') loadVosk();
+    saveSettings();
+    renderReadState();
+  }
+
+  function stepPage(by) {
+    $('read-page').value = String(reading.page + by);
+    readReadingSetup($('read-page'));
+  }
+
+  function loadVosk() {
+    if (!Listen.vosk.supported) return;
+    voskNote = 'Getting Vosk ready…';
+    const update = () => {
+      if (activity === 'read' && !screens.setup.hidden) renderReadState();
+    };
+    Listen.vosk.load((step) => {
+      if (step.phase === 'model') {
+        const mb = (bytes) => Math.round(bytes / 1e6);
+        voskNote = `Downloading English: ${mb(step.loaded)} of ${mb(step.total || Listen.vosk.info.megabytes * 1e6)} MB. This only happens the first time.`;
+      } else if (step.phase === 'unpack') {
+        voskNote = 'Unpacking English…';
+      }
+      update();
+    }).then(update, update);
+    update();
+  }
+
+  // What the reading history says, for one player.
+  function readingFor(id) {
+    const entry = id ? histories.get(id) : null;
+    if (!entry || entry.status !== 'ready') return null;
+    if (!entry.analyses.read) entry.analyses.read = Reading.analyze(entry.rounds, Date.now());
+    return entry.analyses.read;
+  }
+
+  function readWeakReady() {
+    const player = currentPlayer();
+    const analysis = player ? readingFor(player.id) : null;
+    return Boolean(analysis && analysis.totals.rounds) && reading.part !== 'sentences';
+  }
+
+  function effectiveReadFocus() {
+    return reading.focus === 'weak' && readWeakReady() ? 'weak' : 'all';
+  }
+
+  function readEngine() {
+    return reading.engine === 'online' && !Listen.BrowserRecognition ? 'off' : reading.engine;
+  }
+
+  // How many items a round of this page has, and the pool they come from.
+  function readPool(l) {
+    if (reading.part === 'sentences') return l.sentences.length;
+    return reading.part === 'sounds' ? l.sounds.length : l.words.length + l.decodable.length;
+  }
+
+  function readCount(l) {
+    const pool = readPool(l);
+    return reading.part === 'sentences' || !reading.count ? pool : Math.min(reading.count, pool);
+  }
+
+  function engineHelp() {
+    const vosk = Listen.vosk;
+    if (reading.engine === 'vosk') {
+      if (!vosk.supported) return 'This browser can’t check on the device. Choose another way.';
+      if (vosk.state === 'ready') return 'Ready. Checking happens on this device, so no audio leaves it.';
+      if (vosk.state === 'failed') return `Checking on this device couldn’t load (${vosk.error}).`;
+      if (vosk.state === 'loading') return voskNote;
+      return `The first time, this downloads ${vosk.info.megabytes} MB. After that it works offline, and no audio leaves the device.`;
+    }
+    if (reading.engine === 'off') return 'No listening: your child reads, and you tap ✓ or Not yet.';
+    return 'Chrome sends the audio to Google to check it. You can always tap ✓ yourself.';
+  }
+
+  function readFocusHelp(player, analysis, focus) {
+    if (!player) return 'Weak spots works from a player’s history, so pick a name first.';
+    const entry = histories.get(player.id);
+    if (!entry || entry.status === 'loading') return `Loading ${player.name}'s history…`;
+    if (!analysis || !analysis.totals.rounds) return `Weak spots starts working after ${player.name} reads a round or two.`;
+    return focus === 'weak'
+      ? 'Words and sounds that need practice come up more often (they’re marked with a dot).'
+      : 'Everything on the page is as likely to come up, and anything new on the page always does.';
+  }
+
+  function renderReadState() {
+    const l = Reading.lesson(reading.page);
+    const player = currentPlayer();
+    const analysis = player ? readingFor(player.id) : null;
+    const sentences = reading.part === 'sentences';
+
+    const pageBits = [`Newest sound: “${l.newSound}”.`];
+    if (l.newWords.length) pageBits.push(`New sight ${l.newWords.length === 1 ? 'word' : 'words'}: ${Insights.listOf(l.newWords)}.`);
+    $('page-help').textContent = pageBits.join(' ');
+    $('page-down').disabled = reading.page <= Reading.FIRST_PAGE;
+    $('page-up').disabled = reading.page >= Reading.LAST_PAGE;
+    $('part-help').textContent = {
+      words: `${plural(l.words.length, 'sight word')}${l.decodable.length ? `, and ${plural(l.decodable.length, 'word')} to sound out from the page’s sentences` : ''}.`,
+      sounds: `${plural(l.sounds.length, 'letter or sound', 'letters and sounds')}. Your child says each sound, and you tap ✓ when it’s right.`,
+      sentences: l.sentences.length ? `${plural(l.sentences.length, 'sentence')}. Words light up as they’re read.` : 'This page has no sentences yet.',
+    }[reading.part];
+
+    $('read-count-field').hidden = sentences;
+    $('read-focus-field').hidden = sentences;
+    $('read-focus-weak').disabled = !readWeakReady();
+    const focus = effectiveReadFocus();
+    form.elements.readFocus.value = focus;
+    $('read-focus-help').textContent = readFocusHelp(player, analysis, focus);
+
+    $('engine-online').disabled = !Listen.BrowserRecognition;
+    $('engine-vosk').disabled = !Listen.vosk.supported;
+    $('engine-help').textContent = engineHelp();
+    $('read-vosk-retry').hidden = !(reading.engine === 'vosk' && Listen.vosk.state === 'failed');
+    const old = Listen.isOldAndroid(device);
+    $('old-android').hidden = !old || reading.engine === 'off';
+    if (old) {
+      $('old-android').textContent = `This tablet has Android ${device.android}. Reading practice is meant for Android ${Listen.OLD_ANDROID} or newer, so checking by voice may miss more words here.`;
+    }
+
+    renderReadPreview(l, analysis, focus);
+
+    const n = readCount(l);
+    const [one, many] = PART_NOUNS[reading.part];
+    const engine = readEngine();
+    const how = { online: 'checked by voice', vosk: 'checked by voice on this device', off: 'checked by a grown-up' }[engine];
+    $('summary').textContent = n === 0
+      ? `Page ${reading.page} has no ${many}. Pick another page, or Words or Sounds.`
+      : `${player ? `${player.name}: ` : ''}${sentences ? `the ${n === 1 ? one : `${n} ${many}`}` : `${n} ${n === 1 ? one : many}`} from page ${reading.page}` +
+        `${focus === 'weak' ? ', leaning on weak spots' : ''}, ${reading.part === 'sounds' ? 'checked by a grown-up' : how}.`;
+    $('start').disabled = n === 0 || (engine === 'vosk' && reading.part !== 'sounds' && Listen.vosk.state !== 'ready');
+  }
+
+  // The page's words, sounds or sentences, with the ones that need practice marked.
+  function renderReadPreview(l, analysis, focus) {
+    const levelOf = (key) => {
+      const entry = analysis ? analysis.items.get(key) : null;
+      return entry ? entry.level : 'new';
+    };
+    let weak = 0;
+    const chip = (key, className, fill) => {
+      const item = element('li', `word-chip ${className}`.trim());
+      fill(item);
+      if (levelOf(key) === 'practice') {
+        item.classList.add('is-weak');
+        weak += 1;
+      }
+      return item;
+    };
+    let chips;
+    if (reading.part === 'sounds') {
+      chips = l.sounds.map((t) => chip(Reading.keyOf('sound', t), t.toLowerCase() === l.newSound ? 'is-sound is-new' : 'is-sound', (li) => { li.textContent = t; }));
+    } else if (reading.part === 'sentences') {
+      chips = l.sentences.map((t) => chip(Reading.keyOf('sentence', t), 'is-sentence', (li) => { li.textContent = t; }));
+    } else {
+      chips = [
+        ...l.words.map((w) => chip(Reading.keyOf('sight', w), l.newWords.includes(w) ? 'is-new' : '', (li) => { li.textContent = w; })),
+        ...l.decodable.map((d) => chip(Reading.keyOf('word', d.word), 'is-decodable', (li) => {
+          for (const part of Reading.mark(d.word, d.sound)) li.append(part.mark ? element('span', 'sound-part', part.text) : document.createTextNode(part.text));
+        })),
+      ];
+    }
+    $('read-chips').replaceChildren(...chips);
+    $('read-key').hidden = weak === 0 || focus !== 'weak';
+    $('read-note').textContent = {
+      words: 'Sight words first, then words to sound out, with a sound marked. New sight words are outlined, and always come up.',
+      sounds: 'The newest sound is outlined, and always comes up.',
+      sentences: 'Read in this order.',
+    }[reading.part];
   }
 
   // ---------- players and their history ----------
@@ -429,7 +666,8 @@
     $('player-help').textContent = playerHelp();
     const player = currentPlayer();
     const overall = player ? overallFor(player.id) : null;
-    $('open-report').hidden = !(overall && overall.questions);
+    const read = player ? readingFor(player.id) : null;
+    $('open-report').hidden = !((overall && overall.questions) || (read && read.totals.rounds));
   }
 
   function playerHelp() {
@@ -440,6 +678,12 @@
     const entry = histories.get(player.id);
     if (!entry || entry.status === 'loading') return `Loading ${player.name}'s history…`;
     if (entry.status === 'failed') return `${player.name}'s history couldn't load right now. New answers will still be saved.`;
+    if (activity === 'read') {
+      const read = readingFor(player.id);
+      if (!read.totals.rounds) return `${player.name} hasn't done any reading yet. Every answer will be saved.`;
+      return `${player.name}'s reading so far: ${plural(read.totals.rounds, 'round')}, ` +
+        `${plural(read.totals.questions, 'word, sound or sentence', 'words, sounds and sentences')}, ${percent(read.totals.accuracy)} read right.`;
+    }
     const totals = overallFor(player.id);
     if (!totals.questions) return `${player.name} hasn't played yet. Every answer will be saved.`;
     return `${player.name} so far: ${plural(totals.rounds, 'round')}, ` +
@@ -644,6 +888,7 @@
 
   function startRound() {
     sound.unlock();
+    lastPlayed = 'math';
     const player = currentPlayer();
     const focus = effectiveFocus();
     const questions = focus === 'weak'
@@ -841,6 +1086,7 @@
     $('result-score').textContent = `You got ${done.score} out of ${total} right.`;
     $('stat-right').textContent = percent(done.score / total);
     $('stat-streak').textContent = done.bestStreak;
+    $('stat-time-label').textContent = 'Avg. time';
 
     const answered = done.answers.filter((a) => !a.timedOut);
     const average = answered.reduce((sum, a) => sum + a.ms, 0) / (answered.length || 1);
@@ -880,11 +1126,129 @@
     $('review').hidden = misses.length === 0;
   }
 
+  // ---------- a round of reading ----------
+
+  const reader = window.Reader.create({
+    sound,
+    onAnswer(answer) {
+      if (readRound && readRound.record) {
+        readRound.record.answers.push(answer);
+        persist(readRound);
+      }
+    },
+    onFinish: finishReading,
+  });
+
+  // What gets saved for each reading round. Answers are added as they happen.
+  function newReadRecord(player, focus, engine) {
+    return {
+      id: Players.newId('r'),
+      playerId: player.id,
+      startedAt: new Date().toISOString(),
+      settings: { operation: 'read', page: reading.page, part: reading.part, count: reading.count, focus, engine },
+      answers: [],
+      finished: false,
+    };
+  }
+
+  async function startReading() {
+    if (readRound) return;
+    sound.unlock();
+    const player = currentPlayer();
+    const l = Reading.lesson(reading.page);
+    const focus = effectiveReadFocus();
+    const items = Reading.createRound(l, { ...reading, focus }, Reading.weightFinder(player ? readingFor(player.id) : null));
+    if (!items.length) return;
+    // Sounds are always checked by a grown-up.
+    const engine = reading.part === 'sounds' ? 'off' : readEngine();
+    if (engine === 'vosk') {
+      if (Listen.vosk.state !== 'ready') return;
+      const opened = await Listen.vosk.open(); // asks for the mic, so it runs straight from the tap
+      if (!opened) {
+        $('engine-help').textContent = Listen.vosk.error === 'NotAllowedError'
+          ? 'The browser isn’t allowed to use the microphone. Allow it for this site, then try again.'
+          : 'Couldn’t open the microphone.';
+        return;
+      }
+    }
+    readRound = {
+      player,
+      part: reading.part,
+      engine,
+      record: player ? newReadRecord(player, focus, engine) : null,
+      save: player ? Players.makeSaver((record) => store.saveRound(record)) : null,
+      lastSave: null,
+    };
+    lastPlayed = 'read';
+    showScreen('read');
+    wake.on();
+    reader.start({
+      items,
+      engine,
+      vocabulary: Reading.vocabulary(l),
+      names: l.names,
+      // A level bar while listening: Vosk always has the mic; the browser's recognition can share it only on a computer.
+      meter: engine === 'vosk' || (engine === 'online' && Listen.canShareMic(device)),
+    });
+    $('read-right').focus({ preventScroll: true });
+  }
+
+  function stopReading() {
+    const quitting = readRound;
+    reader.stop();
+    wake.off();
+    readRound = null;
+    return quitting;
+  }
+
+  function finishReading(summary) {
+    const done = stopReading();
+    if (!done) return;
+    if (done.record) {
+      done.record.finished = true;
+      persist(done);
+    }
+    const total = summary.answers.length;
+    const stars = Quiz.starsFor(summary.score, total);
+    const [one, many] = PART_NOUNS[done.part];
+    $('stars').querySelectorAll('.star').forEach((star, i) => star.classList.toggle('is-on', i < stars));
+    $('result-title').textContent = total && summary.score === total ? 'Perfect reading!' : RESULT_TITLES[stars];
+    $('result-score').textContent = `You ${done.part === 'sounds' ? 'said' : 'read'} ${summary.score} of ${total} ${total === 1 ? one : many} right.`;
+    $('stat-right').textContent = total ? percent(summary.score / total) : '-';
+    $('stat-streak').textContent = summary.bestStreak;
+    $('stat-time-label').textContent = 'Checked by voice';
+    $('stat-time').textContent = done.engine === 'off' ? '-' : `${summary.byVoice} of ${total}`;
+    renderReadReview(summary.answers.filter((a) => !a.right));
+    showSaveNote(done);
+    const link = $('results-report');
+    link.hidden = !done.player;
+    if (done.player) {
+      link.textContent = `See ${done.player.name}'s progress`;
+      link.dataset.player = done.player.id;
+    }
+    showScreen('results');
+    sound.finish(stars);
+    $('again').focus({ preventScroll: true });
+  }
+
+  function renderReadReview(misses) {
+    const list = $('review-list');
+    list.replaceChildren(...misses.map((miss) => {
+      const item = element('li', '');
+      item.append(
+        element('span', `review-fact${miss.kind === 'sentence' ? ' is-sentence' : ''}`, miss.shown || miss.item),
+        element('span', 'review-note', miss.how === 'skip' ? 'Not yet' : 'Read after Hear it')
+      );
+      return item;
+    }));
+    $('review').hidden = misses.length === 0;
+  }
+
   // ---------- progress report ----------
 
   function openReport(id) {
     reportFor = id;
-    reportOp = settings.operation;
+    reportOp = activity === 'read' ? 'read' : settings.operation;
     trendPick = -1;
     for (const [buttonId, panelId] of [['map-list-toggle', 'map-list'], ['trend-table-toggle', 'trend-table-box']]) {
       const button = $(buttonId);
@@ -912,16 +1276,22 @@
     const entry = histories.get(player.id);
     const note = $('report-note');
     const body = $('report-body');
-    // Show the operation set up on the setup screen, or the one that's been played.
-    const played = overallFor(player.id) ? overallFor(player.id).operations : [];
+    // Show what's set up on the setup screen, or what's been played.
+    const read = readingFor(player.id);
+    const played = [...(overallFor(player.id) ? overallFor(player.id).operations : []), ...(read && read.totals.rounds ? ['read'] : [])];
     if (played.length && !played.includes(reportOp)) reportOp = played[0];
     $('report-ops').hidden = played.length < 2;
+    for (const op of ['multiply', 'add', 'read']) $(`report-op-${op}`).closest('.pill').hidden = !played.includes(op);
     $(`report-op-${reportOp}`).checked = true;
-    const analysis = analysisFor(player.id, reportOp);
+    const reads = reportOp === 'read';
+    setReportKind(reads);
+    const analysis = reportAnalysis();
     let problem = '';
     if (!entry || entry.status === 'loading') problem = `Loading ${player.name}'s history…`;
     else if (entry.status === 'failed') problem = `${player.name}'s history couldn't load right now. Try again in a moment.`;
-    else if (!analysis.totals.questions) {
+    else if (reads && !analysis.totals.rounds) {
+      problem = `${player.name} hasn't done any reading yet. After a round or two, this page shows which words and sounds are known, which need practice, and how it's going over time.`;
+    } else if (!reads && !analysis.totals.questions) {
       problem = `${player.name} hasn't played yet. After a round or two, this page shows which facts are known by heart, which need practice, and how it's going over time.`;
     }
     note.textContent = problem;
@@ -934,13 +1304,37 @@
     }
 
     const { totals } = analysis;
-    $('report-sub').textContent = `${plural(totals.rounds, 'round')} on ${plural(totals.days, 'day')}, since ${dayFormat.format(totals.firstAt)}`;
+    $('report-sub').textContent = `${plural(totals.rounds, reads ? 'reading round' : 'round')} on ${plural(totals.days, 'day')}, since ${dayFormat.format(totals.firstAt)}`;
+    if (reads) {
+      renderReadKpis(analysis);
+      renderReadAdvice(analysis, player);
+      renderReadTricky(analysis);
+      renderWordWall(analysis);
+      renderTrend(analysis);
+      renderReadRounds(analysis);
+      return;
+    }
     renderKpis(analysis);
     renderAdvice(analysis, player);
     renderTricky(analysis);
     renderMastery(analysis);
     renderTrend(analysis);
     renderRounds(analysis);
+  }
+
+  // The analysis behind the report on screen: one math operation's, or reading's.
+  function reportAnalysis() {
+    if (!reportFor) return null;
+    return reportOp === 'read' ? readingFor(reportFor) : analysisFor(reportFor, reportOp);
+  }
+
+  // The report's panels show math facts or reading; these change with it.
+  function setReportKind(reads) {
+    $('tricky-title').textContent = reads ? 'Trickiest words and sounds' : 'Trickiest facts';
+    $('mastery-chart').hidden = reads;
+    $('word-wall').hidden = !reads;
+    $('trend-time-figure').hidden = reads;
+    $('trend-time-head').hidden = reads;
   }
 
   // A stat tile: label, value, a short note, and how it changed (tone: 'good', 'bad' or '').
@@ -1081,6 +1475,159 @@
     $('map-detail').textContent = factDetail(analysis, Number(cell.dataset.row), Number(cell.dataset.col));
   }
 
+  // ---------- the reading report ----------
+
+  const READ_KIND_NAMES = { sight: 'sight word', word: 'word to sound out', sound: 'sound', sentence: 'sentence' };
+
+  function renderReadKpis(analysis) {
+    const { items, lately, earlier, totals } = analysis;
+    const known = (kinds) => {
+      const tried = [...items.values()].filter((e) => kinds.includes(e.kind));
+      return { tried: tried.length, mastered: tried.filter((e) => e.level === 'mastered').length };
+    };
+    const tiles = [];
+    const sight = known(['sight']);
+    tiles.push(kpi('Sight words known', String(sight.mastered), `of ${plural(sight.tried, 'sight word')} tried`, null));
+    let change = null;
+    if (earlier) {
+      const points = Math.round(lately.accuracy * 100) - Math.round(earlier.accuracy * 100);
+      change = Math.abs(points) < 3
+        ? { tone: '', text: `About the same as before (${percent(earlier.accuracy)})` }
+        : { tone: points > 0 ? 'good' : 'bad', arrow: points > 0 ? '↑' : '↓', text: `${points > 0 ? 'Up' : 'Down'} from ${percent(earlier.accuracy)}` };
+    }
+    tiles.push(kpi(earlier ? 'Read right lately' : 'Read right so far', percent(lately.accuracy), earlier ? `last ${Reading.LATELY} rounds` : 'so far', change));
+    const sounds = known(['sound']);
+    const decode = known(['word']);
+    if (sounds.tried) tiles.push(kpi('Sounds known', String(sounds.mastered), `of ${plural(sounds.tried, 'sound')} tried`, null));
+    else tiles.push(kpi('Words to sound out', String(decode.mastered), `known, of ${decode.tried} tried`, null));
+    tiles.push(kpi('Read', plural(totals.rounds, 'round'), `${totals.questions} items on ${plural(totals.days, 'day')}`, null));
+    $('report-kpis').replaceChildren(...tiles);
+  }
+
+  function renderReadAdvice(analysis, player) {
+    const tips = [];
+    if (analysis.daysSinceLast >= 7) {
+      tips.push(`It's been ${analysis.daysSinceLast} days since the last reading round. A few minutes most days helps words stick.`);
+    }
+    const words = Reading.trickiest(analysis, ['sight', 'word'], 4).filter((e) => e.level === 'practice');
+    if (words.length) {
+      tips.push(`Practice ${Insights.listOf(words.map((e) => `“${e.item}”`))}. Choose “Weak spots” on the setup screen and ${words.length > 1 ? 'they' : 'it'}'ll come up more often.`);
+    }
+    const misheard = words.find((e) => e.lastHeard && !Reading.checkWord(e.item, [{ transcript: e.lastHeard }]).ok);
+    if (misheard) {
+      tips.push(`“${misheard.item}” was last heard as “${misheard.lastHeard}”. If that's what ${player.name} said, sound it out together.`);
+    }
+    const sounds = Reading.trickiest(analysis, ['sound'], 4).filter((e) => e.level === 'practice');
+    if (sounds.length) tips.push(`Sounds to practice: ${Insights.listOf(sounds.map((e) => `“${e.item}”`))}.`);
+    const sentences = Reading.trickiest(analysis, ['sentence'], 2).filter((e) => e.level === 'practice');
+    if (sentences.length) tips.push(`Read ${sentences.length > 1 ? 'these sentences' : 'this sentence'} together again: ${sentences.map((e) => `“${e.item}”`).join(' ')}`);
+    if (!tips.length) tips.push('Keep it up! A few minutes of reading most days keeps the words fresh.');
+    $('report-advice').replaceChildren(...tips.slice(0, 4).map((tip) => element('li', '', tip)));
+    $('report-practice').hidden = !Reading.trickiest(analysis, ['sight', 'word', 'sound'], 1).length;
+  }
+
+  function readingDetail(entry) {
+    let text = `${recentText(entry)}.`;
+    const last = entry.tries[entry.tries.length - 1];
+    if (!last.right) text += last.how === 'skip' ? ' Last time: Not yet.' : ' Last time: read after Hear it.';
+    else if (last.how === 'grown-up') text += ' Last time: checked by a grown-up.';
+    if (entry.lastHeard) text += ` Heard as “${entry.lastHeard}” when it was missed.`;
+    return text;
+  }
+
+  function renderReadTricky(analysis) {
+    const list = $('tricky-list');
+    const items = Reading.trickiest(analysis);
+    if (!items.length) {
+      list.replaceChildren(element('li', 'tricky-none', 'Nothing tricky right now: everything read lately was read right.'));
+      return;
+    }
+    list.replaceChildren(...items.map((e) => {
+      const item = element('li', `tricky lv-${e.level}`);
+      const head = element('div', 'tricky-head');
+      head.append(element('span', `tricky-fact${e.kind === 'sentence' ? ' is-sentence' : ''}`, e.item), element('span', 'level-tag', LEVEL_NAMES[e.level]));
+      item.append(head, element('p', 'tricky-note', `${READ_KIND_NAMES[e.kind][0].toUpperCase()}${READ_KIND_NAMES[e.kind].slice(1)}. ${readingDetail(e)}`));
+      return item;
+    }));
+  }
+
+  // Every sight word the packet has taught up to the furthest page read, then the sounds and words tried.
+  function renderWordWall(analysis) {
+    $('map-title').textContent = 'Word wall';
+    const furthest = Math.max(Reading.FIRST_PAGE, ...analysis.rounds.map((r) => r.settings.page));
+    const taught = [];
+    for (let page = Reading.FIRST_PAGE; page <= furthest; page++) {
+      const l = Reading.lesson(page);
+      if (l) for (const w of l.newWords) if (!taught.includes(w)) taught.push(w);
+    }
+    const levelOf = (key) => {
+      const entry = analysis.items.get(key);
+      return entry ? entry.level : 'new';
+    };
+    const counts = { mastered: 0, learning: 0, practice: 0, new: 0 };
+    const group = (title, entries) => {
+      const box = element('div', 'wall-group');
+      box.append(element('h4', 'wall-title', title));
+      const list = element('ul', 'word-chips');
+      for (const [key, text] of entries) {
+        const level = levelOf(key);
+        counts[level] += 1;
+        const chip = element('li', `word-chip wall-chip lv-${level}`, text);
+        chip.dataset.key = key;
+        chip.tabIndex = 0;
+        list.append(chip);
+      }
+      box.append(list);
+      return box;
+    };
+    const tried = (kind) => [...analysis.items.values()].filter((e) => e.kind === kind).map((e) => [e.key, e.item]);
+    const groups = [group(`Sight words up to page ${furthest}`, taught.map((w) => [Reading.keyOf('sight', w), w]))];
+    if (tried('word').length) groups.push(group('Words sounded out', tried('word')));
+    if (tried('sound').length) groups.push(group('Sounds', tried('sound')));
+    $('word-wall').replaceChildren(...groups);
+    $('mastery-legend').replaceChildren(...Insights.LEVELS.map((level) => {
+      const item = element('li', '');
+      item.append(element('span', `swatch lv-${level}`), element('span', '', LEVEL_NAMES[level]), element('b', '', String(counts[level])));
+      return item;
+    }));
+    $('map-detail').textContent = 'Tap a word to see how it’s going.';
+    // The same wall as a list.
+    $('map-list').replaceChildren(...Insights.LEVELS.map((level) => {
+      const names = [...$('word-wall').querySelectorAll(`.lv-${level}`)].map((chip) => chip.textContent);
+      const line = element('p', '');
+      line.append(element('strong', '', `${LEVEL_NAMES[level]} (${names.length}): `), document.createTextNode(names.length ? names.join(', ') : 'none yet'));
+      return line;
+    }));
+  }
+
+  function pickWallChip(event) {
+    const chip = event.target.closest('.wall-chip');
+    const analysis = reportOp === 'read' ? reportAnalysis() : null;
+    if (!chip || !analysis) return;
+    for (const node of $('word-wall').querySelectorAll('.is-picked')) node.classList.remove('is-picked');
+    chip.classList.add('is-picked');
+    const entry = analysis.items.get(chip.dataset.key);
+    $('map-detail').textContent = entry ? `${entry.item}: ${LEVEL_NAMES[entry.level].toLowerCase()}. ${readingDetail(entry)}` : `${chip.textContent}: not tried yet.`;
+  }
+
+  function renderReadRounds(analysis) {
+    const partNames = { words: 'Words', sounds: 'Sounds', sentences: 'Sentences' };
+    const checks = { online: 'checked by voice', vosk: 'checked by voice on the device', off: 'checked by a grown-up' };
+    const recent = analysis.rounds.slice(-8).reverse();
+    $('round-list').replaceChildren(...recent.map((r) => {
+      const s = r.settings;
+      const right = r.answers.filter((x) => x.right).length;
+      const what = [`Page ${s.page}`, partNames[s.part], checks[s.engine]];
+      if (s.focus === 'weak') what.push('Weak spots');
+      if (!r.finished) what.push(`stopped after ${r.answers.length}`);
+      const item = element('li', 'round-row');
+      const text = element('div', 'round-text');
+      text.append(element('span', 'round-when', whenFormat.format(r.at)), element('span', 'round-what', what.join(' · ')));
+      item.append(text, element('span', 'round-score', `${right}/${r.answers.length}`));
+      return item;
+    }));
+  }
+
   // ---------- progress charts ----------
   // Two small charts over the same days (or rounds): the share of right
   // answers, and the typical time to answer. One point is picked at a time;
@@ -1157,29 +1704,27 @@
 
   function trendRow(point, unit) {
     const right = point.questions ? percent(point.right / point.questions) : '-';
-    const time = point.typicalMs === null ? 'no answers in time' : `typically ${secs(point.typicalMs)} s an answer`;
     const when = unit === 'day' ? dayFormat.format(point.at) : `Round ${point.number}, ${dayFormat.format(point.at)}`;
+    if (reportOp === 'read') return `${when}: ${right} read right (${point.right} of ${point.questions}).`;
+    const time = point.typicalMs === null ? 'no answers in time' : `typically ${secs(point.typicalMs)} s an answer`;
     return `${when}: ${right} right (${point.right} of ${point.questions}), ${time}.`;
   }
 
   function renderTrend(analysis) {
     const { unit, points } = analysis.trend;
     if (trendPick < 0 || trendPick >= points.length) trendPick = points.length - 1;
+    const reads = reportOp === 'read';
     $('trend-unit').textContent = unit === 'day'
-      ? `Each bar and dot is one day of play, for the last ${plural(points.length, 'day')} played.`
-      : 'Each bar and dot is one round. After 3 days of play, it switches to one per day.';
+      ? `Each ${reads ? 'bar' : 'bar and dot'} is one day of ${reads ? 'reading' : 'play'}, for the last ${plural(points.length, 'day')} ${reads ? 'read' : 'played'}.`
+      : `Each ${reads ? 'bar' : 'bar and dot'} is one round. After 3 days of ${reads ? 'reading' : 'play'}, it switches to one per day.`;
     drawTrends(analysis);
     $('trend-table-when').textContent = unit === 'day' ? 'Day' : 'Round';
     $('trend-table-rows').replaceChildren(...points.map((p) => {
       const row = element('tr', '');
       const head = element('th', '', unit === 'day' ? dayFormat.format(p.at) : `${p.number} (${dayFormat.format(p.at)})`);
       head.scope = 'row';
-      row.append(
-        head,
-        element('td', '', String(p.questions)),
-        element('td', '', `${p.right} (${percent(p.right / p.questions)})`),
-        element('td', '', p.typicalMs === null ? '-' : `${secs(p.typicalMs)} s`)
-      );
+      row.append(head, element('td', '', String(p.questions)), element('td', '', `${p.right} (${percent(p.right / p.questions)})`));
+      if (!reads) row.append(element('td', '', p.typicalMs === null ? '-' : `${secs(p.typicalMs)} s`));
       return row;
     }));
   }
@@ -1206,7 +1751,7 @@
   }
 
   function pickTrend(index) {
-    const analysis = reportFor ? analysisFor(reportFor, reportOp) : null;
+    const analysis = reportAnalysis();
     if (!analysis) return;
     const next = Math.max(0, Math.min(analysis.trend.points.length - 1, index));
     if (next === trendPick) return;
@@ -1270,7 +1815,7 @@
   }
 
   function renderSound() {
-    $('sound').setAttribute('aria-pressed', String(settings.sound));
+    for (const id of ['sound', 'read-sound']) $(id).setAttribute('aria-pressed', String(settings.sound));
   }
 
   function toggleView(button, panel) {
@@ -1281,14 +1826,28 @@
   }
 
   form.addEventListener('change', (event) => {
-    if (event.target.name === 'player') choosePlayer(event.target.value);
-    else if (event.target.name === 'operation') chooseOperation(event.target.value);
-    else if (event.target.id !== 'new-player-name') readSetup(event.target);
+    const target = event.target;
+    if (target.name === 'player') choosePlayer(target.value);
+    else if (target.name === 'operation') chooseActivity(target.value);
+    else if (target.closest('#read-fields')) readReadingSetup(target);
+    else if (target.id !== 'new-player-name') readSetup(target);
   });
   form.addEventListener('submit', (event) => {
     event.preventDefault();
-    if (!$('start').disabled) startRound();
+    if ($('start').disabled) return;
+    if (activity === 'read') startReading();
+    else startRound();
   });
+  $('page-down').addEventListener('click', () => stepPage(-1));
+  $('page-up').addEventListener('click', () => stepPage(1));
+  // Enter in the page box picks the page instead of starting a round.
+  $('read-page').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      readReadingSetup($('read-page'));
+    }
+  });
+  $('read-vosk-retry').addEventListener('click', loadVosk);
   $('tables-all').addEventListener('click', () => setAllTables(true));
   $('tables-none').addEventListener('click', () => setAllTables(false));
 
@@ -1304,13 +1863,24 @@
     if (quitting && quitting.record && quitting.record.answers.length) persist(quitting).catch(() => {});
     showSetup();
   });
-  $('sound').addEventListener('click', () => {
-    settings.sound = !settings.sound;
-    saveSettings();
-    renderSound();
-    if (settings.sound) sound.unlock();
+  for (const id of ['sound', 'read-sound']) {
+    $(id).addEventListener('click', () => {
+      settings.sound = !settings.sound;
+      saveSettings();
+      renderSound();
+      if (settings.sound) sound.unlock();
+    });
+  }
+  $('read-quit').addEventListener('click', () => {
+    const quitting = stopReading();
+    // Keep whatever was read before stopping.
+    if (quitting && quitting.record && quitting.record.answers.length) persist(quitting).catch(() => {});
+    showSetup();
   });
-  $('again').addEventListener('click', startRound);
+  $('again').addEventListener('click', () => {
+    if (lastPlayed === 'read') startReading();
+    else startRound();
+  });
   $('change').addEventListener('click', showSetup);
 
   $('add-player-open').addEventListener('click', openAddPlayer);
@@ -1335,8 +1905,15 @@
   $('report-print').addEventListener('click', () => window.print());
   $('report-practice').addEventListener('click', () => {
     if (reportFor) settings.playerId = reportFor;
-    switchOperation(reportOp);
-    settings.focus = 'weak';
+    if (reportOp === 'read') {
+      activity = 'read';
+      reading.focus = 'weak';
+      if (reading.part === 'sentences') reading.part = 'words';
+    } else {
+      activity = 'math';
+      switchOperation(reportOp);
+      settings.focus = 'weak';
+    }
     saveSettings();
     renderPlayers();
     renderSetup();
@@ -1347,6 +1924,13 @@
     reportOp = event.target.value;
     trendPick = -1;
     renderReport();
+  });
+  $('word-wall').addEventListener('click', pickWallChip);
+  $('word-wall').addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      pickWallChip(event);
+    }
   });
   $('mastery-chart').addEventListener('pointerover', pickMasteryCell);
   $('mastery-chart').addEventListener('click', pickMasteryCell);
@@ -1373,17 +1957,24 @@
       lastWidth = width;
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
-        const analysis = reportFor && !screens.report.hidden ? analysisFor(reportFor, reportOp) : null;
+        const analysis = !screens.report.hidden ? reportAnalysis() : null;
         if (analysis && analysis.totals.questions) drawTrends(analysis);
       });
     }).observe($('trend-right'));
   }
 
   buildSetup();
+  buildReadSetup();
   buildTiles();
   renderSetup();
   renderPlayers();
   renderSound();
   showScreen('setup');
   connectStore();
+  Listen.describeDevice().then((found) => {
+    device = found;
+    if (activity === 'read') renderSetupState();
+  }, () => {});
+  // Checking on the device was picked last time: get it ready (after the first time, it loads from this browser).
+  if (reading.engine === 'vosk') loadVosk();
 })();

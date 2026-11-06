@@ -79,6 +79,7 @@
       if (!r || typeof r !== 'object') continue;
       const at = Date.parse(r.startedAt);
       const s = r.settings && typeof r.settings === 'object' ? r.settings : {};
+      if (s.operation === 'read') continue; // reading rounds have their own report (reading.js)
       // Rounds saved before addition existed are multiplication.
       const operation = s.operation === 'add' ? 'add' : 'multiply';
       const answers = (Array.isArray(r.answers) ? r.answers : []).map((x) => cleanAnswer(x, operation)).filter(Boolean);

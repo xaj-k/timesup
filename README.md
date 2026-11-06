@@ -1,6 +1,9 @@
 # Times Up!
 
-A math facts quiz for kids, for multiplication and addition. A question like **6 × 8** or **6 + 8** appears on a chalkboard at the top of the screen, and the player taps the one tile out of four that has the right answer.
+Practice for kids: math facts and reading.
+
+- **Math facts**, for multiplication and addition. A question like **6 × 8** or **6 + 8** appears on a chalkboard at the top of the screen, and the player taps the one tile out of four that has the right answer.
+- **Reading** the class's phonics homework out loud: sight words, sounds and sentences, one page at a time. The page listens and moves on when it hears the word, and a grown-up can always mark it right. See [Reading practice](#reading-practice).
 
 ## Play
 
@@ -10,10 +13,12 @@ To put it on a phone or tablet like an app, see [Install on a phone or tablet](#
 
 ## Settings
 
+These are for math. Reading has its own settings (see [Reading practice](#reading-practice)).
+
 | Setting | Choices |
 | --- | --- |
 | Who's playing? | A first name, or Guest (guest rounds aren't saved) |
-| Practice | **× Multiplication** or **+ Addition**. Each one remembers its own picks for the next two settings. |
+| Practice | **× Multiplication** or **+ Addition** (or **Reading**). Each one remembers its own picks for the next two settings. |
 | Times tables (Numbers, for addition) | Any of 1 to 12 |
 | Multiplied by (Added to, for addition) | **The same numbers**: both numbers come from the ones you picked, so turning off 1 and 2 means no 1s or 2s at all. **A range**: each one you picked is multiplied by (or added to) every number in a range from 0 to 12, for whole tables like 7 × 1 to 7 × 10, or 7 + 0 to 7 + 10. |
 | Focus | **Everything**: every fact comes up equally often. **Weak spots**: facts the player has been missing come up more often (see below). Needs a named player with some history. |
@@ -23,6 +28,32 @@ To put it on a phone or tablet like an app, see [Install on a phone or tablet](#
 The chart on the setup screen shades every fact that can come up. Each question shows its two numbers in either order (6 × 8 or 8 × 6, 6 + 8 or 8 + 6). With Focus on Everything, no fact repeats until all of them have been asked. The browser remembers your settings for next time.
 
 After a wrong answer or when time runs out, the right tile turns green and the answer is shown before the next question. At the end of a round you get up to three stars, your best streak, your average answer time, and a list of the facts to practice.
+
+## Reading practice
+
+Choose **Reading** under Practice. The words come from the class's phonics homework packet, one page at a time (`lessons.js` has pages 4 to 143: each page's sounds, sight words and sentences, as printed). The warm-ups aren't included.
+
+| Setting | Choices |
+| --- | --- |
+| Homework page | 4 to 143. The setup screen shows the page's newest sound and any sight words that are new on it, and a preview of what's on the page. |
+| Read | **Words**: the page's sight words, plus words to sound out taken from the page's sentences, with the newest sound they use marked (like the **sh** in ship). **Sounds**: the page's letters and sounds; your child says each sound and a grown-up taps ✓. **Sentences**: the page's sentences, in order. |
+| Focus | **Everything**, or **Weak spots** (words and sounds missed lately come up more often). Needs a named player with some reading history. |
+| How many | 10, 20, 30, or the whole page. New sight words and the newest sound always come up. |
+| Checking | **By voice, online** (Chrome sends the audio to Google), **By voice, on this device** (Vosk: a 41 MB download the first time, then it works offline and no audio leaves the device), or **A grown-up checks**. |
+
+How a round goes:
+
+- Each word or sentence appears once the microphone is on, so the first sound isn't cut off. When the page hears it read, it says so and moves on.
+- A word counts when it's said nearly on its own, and words that sound the same count ("two" heard as "to"). Talk that runs longer than three words, like a grown-up helping, doesn't count either way.
+- In a sentence, the words light up as they're read, and the sentence counts when every word was heard in order. Names (which recognizers spell every which way) and one "a" or "the" may be missed.
+- If it hears a different word, it says "Try again!", never what it heard. It listens again by itself, up to 3 different words or 6 listens, then waits for **Try again**.
+- **Hear it** reads the item out loud, then listens again.
+- A grown-up can tap **Read it right ✓** or **Not yet** at any time. Sounds are always checked by a grown-up, because speech recognition can't judge a sound on its own.
+- An item counts as read right when it was read without Hear it, whether the page heard it or a grown-up tapped ✓.
+
+On an Android tablet older than Android 13, the setup screen notes that reading practice is meant for Android 13 or newer, so checking by voice may miss more words there.
+
+The progress report has a **Reading** tab (once a player has done some reading). It shows how many sight words and sounds are known by heart, the share read right lately, what to practice next, the trickiest words and sounds, and a **word wall**: every sight word taught up to the furthest page read, plus the words and sounds tried, colored by how well they're known. It uses the same levels as math facts, without the time limit: Got it (the last 3 tries right), Getting there, and Needs practice (the last try wasn't right, or fewer than half of the last 4 were). When a word was missed, the report shows what the recognizer heard, which can show what was really said.
 
 ## How the wrong answers are picked
 
@@ -85,7 +116,7 @@ Each round is saved as one record:
 }
 ```
 
-- `operation` is `"multiply"` or `"add"`. Rounds saved before addition existed don't have it, and count as multiplication.
+- `operation` is `"multiply"` or `"add"`. Rounds saved before addition existed don't have it, and count as multiplication. Reading rounds have `"read"` (see below).
 - `a` and `b` are in the order they were shown, and `answer` is their product or sum.
 - `picked` is `null` when time ran out.
 - `ms` is how long the answer took.
@@ -93,6 +124,22 @@ Each round is saved as one record:
 - `from` and `to` appear in `settings` when "A range" was used.
 - `focus` is `"weak"` for a weak-spots round. Rounds saved before Focus existed don't have it.
 - `finished` is `false` if the round was stopped early.
+
+A reading round is saved the same way, with different settings and answers:
+
+```json
+{
+  "settings": { "operation": "read", "page": 20, "part": "words", "count": 10, "focus": "all", "engine": "online" },
+  "answers": [
+    { "kind": "sight", "item": "green", "shown": "Green", "right": true, "how": "voice", "tries": 2, "helped": false, "ms": 2600, "heard": "grain" }
+  ]
+}
+```
+
+- `part` is `"words"`, `"sounds"` or `"sentences"`; `count` is `0` for the whole page; `engine` is `"online"`, `"vosk"` or `"off"` (a grown-up checks).
+- `kind` is `"sight"` (a sight word), `"word"` (a word to sound out), `"sound"` or `"sentence"`, and `shown` is how it looked (sight words sometimes start with a capital, like in the packet).
+- `how` is `"voice"`, `"grown-up"` (tapped ✓) or `"skip"` (Not yet). `right` is false after Not yet, or when it was read after Hear it (`helped`).
+- `tries` counts the times it was read, including misreads. `heard` is what the recognizer heard the last time it heard something else.
 
 Where it's kept:
 
@@ -123,7 +170,7 @@ Any other static host with HTTPS works too, such as [Netlify Drop](https://app.n
 
 ## Speech check (a trial for reading practice)
 
-`speech-test.html`, at https://xaj-k.github.io/timesup/speech-test.html, checks how well a device's speech recognition understands a child reading 20 words out loud: sight words, and phonics words with the sound pattern highlighted. The words come from the class's phonics homework packet (`reading.js`). Each word appears once the microphone is on, so its first sound isn't cut off. If the page hears nothing or a different word, it listens again by itself, up to three more times. A grown-up can tap Said it right when the child read a word right but the page didn't get it. At the end the page gives results to copy or send: the device's Android and browser versions, what it heard for each word, when it first heard sound, its partial results (the guesses speech recognition makes before its final answer), and how long the microphone took to turn on. If a try ends with no final answer but the latest partial result had the word, it counts. It isn't part of the app yet, and it saves nothing.
+`speech-test.html`, at https://xaj-k.github.io/timesup/speech-test.html, was the trial run for reading practice. It checks how well a device's speech recognition understands a child reading 20 words out loud: sight words, and phonics words with the sound pattern highlighted. The words come from the class's phonics homework packet (`reading.js`). Each word appears once the microphone is on, so its first sound isn't cut off. If the page hears nothing or a different word, it listens again by itself, up to three more times. A grown-up can tap Said it right when the child read a word right but the page didn't get it. At the end the page gives results to copy or send: the device's Android and browser versions, what it heard for each word, when it first heard sound, its partial results (the guesses speech recognition makes before its final answer), and how long the microphone took to turn on. If a try ends with no final answer but the latest partial result had the word, it counts. It's a separate page from the app, and it saves nothing.
 
 A mic check on the first screen shows a sound level bar: how loud the child sounds, and how noisy the room is. On a computer the bar also shows while the page listens for words. On Android it can't, because the level bar and speech recognition can't share the microphone there (one of them gets silence). So on Android the bar stops before the words start, and while listening the board says "Hearing sound…" whenever speech recognition picks up sound.
 
@@ -139,17 +186,20 @@ Words that sound the same count as right: "two" heard as "to" or "2" is fine, an
 
 ## Files
 
-- `index.html`: the four screens (setup, quiz, results, progress)
+- `index.html`: the screens (setup, quiz, reading, results, progress)
 - `style.css`: styles, with light and dark themes
 - `quiz.js`: the quiz rules (which facts, answer choices, weak-spots rounds, scoring), with no page code
 - `players.js`: players and saved history
 - `insights.js`: what the history says (fact levels, trends, suggestions), with no page code
-- `reading.js`: sight words and phonics words, and matching what speech recognition heard; `speech-test.html` and `speech-test.js`: the speech check page
+- `lessons.js`: the phonics homework packet, page by page (sounds, sight words and sentences)
+- `reading.js`: reading practice with no page code: each page's words to practice, matching what speech recognition heard, the items in a round, and what the reading history says
+- `reader.js`: the reading screen
 - `listen.js`: speech recognition (the browser's, or Vosk), the mic level bar, and which device this is
+- `speech-test.html` and `speech-test.js`: the speech check page
 - `vendor/vosk/`: Vosk for recognizing speech on the device (see its README)
 - `app.js`: screens, timer, sound effects and the progress report
-- `manifest.webmanifest`, `sw.js`, `pwa.js`, `icons/`: what makes it installable and work offline
+- `manifest.webmanifest`, `sw.js`, `pwa.js`, `icons/`: what makes it installable and work offline (Vosk's code is kept after its first use, not with every install)
 - `fonts/`: Lilita One and Andika (SIL Open Font License; see the `OFL-*.txt` files)
-- `test/index.html`: open it in a browser to run the tests for `quiz.js`, `insights.js` and `reading.js`
+- `test/index.html`: open it in a browser to run the tests for `quiz.js`, `insights.js`, `lessons.js` and `reading.js`
 
 The lists of choices (tables, range, time limits, round lengths) and the default settings are at the top of `quiz.js`.

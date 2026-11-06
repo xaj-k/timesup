@@ -34,23 +34,11 @@
     /* A new word waits, invisible, until the microphone is on, so its first sound isn't lost. */
     .speech-word.is-waiting { opacity: 0; transition: none; }
     .speech-word .sound-part { color: var(--sun); text-decoration: underline; text-decoration-thickness: 0.08em; text-underline-offset: 0.12em; }
-    .listen { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 28px; color: var(--chalk-soft); font-weight: 700; }
-    .listen-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--chalk-soft); opacity: 0.45; }
-    /* Hidden but still taking its space, so the buttons below don't jump when listening starts and stops. */
-    .listen[hidden] { display: flex !important; visibility: hidden; }
-    .listen.is-on .listen-dot { background: var(--time-low); opacity: 1; animation: pulse 1s ease-in-out infinite; }
-    /* Microphone level: a bar that fills as the sound gets louder. */
-    .meter { position: relative; display: block; height: 14px; border-radius: 7px; background: var(--rule); overflow: hidden; }
-    .meter-fill { position: absolute; inset: 0; border-radius: inherit; background: var(--series); transform: scaleX(0); transform-origin: left center; }
-    .meter-board { flex: 0 0 96px; height: 10px; background: rgba(255, 255, 255, 0.16); }
-    .meter-board .meter-fill { background: var(--chalk); }
     .mic-check { display: grid; gap: 10px; padding: 14px 16px; border-radius: var(--radius-sm); background: var(--card-sunk); }
     .mic-check-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; }
     .mic-check .label { color: var(--ink); }
-    @keyframes pulse { 50% { transform: scale(0.6); opacity: 0.5; } }
     @media (prefers-reduced-motion: reduce) {
       .speech-word { transition: none; }
-      .listen.is-on .listen-dot { animation: none; }
     }
     .heard { min-height: 1.4em; color: var(--ink-soft); text-align: center; }
     .speech .actions .btn { flex: 1 1 160px; padding-inline: 12px; font-size: 20px; }

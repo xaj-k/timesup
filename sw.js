@@ -5,15 +5,24 @@
  * Change VERSION whenever any file in FILES changes. That's how phones and
  * tablets with the app installed know to fetch the new copies; they switch
  * to them the next time the app is opened.
+ *
+ * Vosk (vendor/vosk), for checking reading on the device, is big, so it isn't
+ * part of every install. Its code is kept the first time it's used, in its
+ * own cache (VOSK_CACHE), and Vosk keeps its model in IndexedDB itself.
  */
-const VERSION = '2026-11-05.2';
+const VERSION = '2026-11-06.1';
 const CACHE = `timesup-${VERSION}`;
+const VOSK_CACHE = 'vosk-0.0.8-times-up-1'; // change it if vendor/vosk/vosk.js ever changes
 const FILES = [
   'index.html',
   'style.css',
   'quiz.js',
   'players.js',
   'insights.js',
+  'lessons.js',
+  'reading.js',
+  'listen.js',
+  'reader.js',
   'app.js',
   'pwa.js',
   'manifest.webmanifest',
@@ -44,7 +53,7 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((key) => key.startsWith('timesup-') && key !== CACHE).map((key) => caches.delete(key))))
+      .then((keys) => Promise.all(keys.filter((key) => (key.startsWith('timesup-') && key !== CACHE) || (key.startsWith('vosk-') && key !== VOSK_CACHE)).map((key) => caches.delete(key))))
       .then(() => self.clients.claim())
   );
 });
@@ -55,6 +64,16 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
   const home = new URL(self.registration.scope).pathname;
+  if (url.pathname === `${home}vendor/vosk/vosk.js`) {
+    event.respondWith(caches.open(VOSK_CACHE).then(async (cache) => {
+      const saved = await cache.match(request);
+      if (saved) return saved;
+      const response = await fetch(request);
+      if (response.ok) cache.put(request, response.clone()).catch(() => {});
+      return response;
+    }));
+    return;
+  }
   // Opening the app, at its folder or at index.html, gets the saved page.
   if (request.mode === 'navigate' && (url.pathname === home || url.pathname === `${home}index.html`)) {
     event.respondWith(caches.match('index.html', { cacheName: CACHE }).then((saved) => saved || fetch(request)));

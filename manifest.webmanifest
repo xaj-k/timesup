@@ -1,7 +1,7 @@
 {
-  "name": "Times Up! Multiplication and addition practice",
+  "name": "Times Up! Math facts and reading practice",
   "short_name": "Times Up",
-  "description": "A math facts quiz for kids, for multiplication and addition: pick the right answer from four tiles, with or without a timer.",
+  "description": "Practice for kids: multiplication and addition facts, with or without a timer, and reading the class's phonics homework out loud.",
   "lang": "en",
   "start_url": "./",
   "scope": "./",

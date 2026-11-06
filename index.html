@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Times Up</title>
-  <meta name="description" content="A math facts quiz for kids, for multiplication and addition. Pick the right answer from four tiles, with or without a timer.">
+  <meta name="description" content="Practice for kids: multiplication and addition facts, with or without a timer, and reading the class's phonics homework out loud.">
   <!-- Installing on a phone or tablet: see manifest.webmanifest, sw.js and pwa.js -->
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#f3f6fb" media="(prefers-color-scheme: light)">
@@ -28,7 +28,7 @@
         <span class="brand-mark" aria-hidden="true">×</span>
         <div>
           <h1 class="brand-name" id="setup-title">Times Up!</h1>
-          <p class="brand-tag">Multiplication and addition practice</p>
+          <p class="brand-tag">Math facts and reading practice</p>
         </div>
         <button type="button" class="btn-small btn-soft install-btn" id="install" hidden>Install app</button>
       </header>
@@ -58,9 +58,65 @@
             <div class="pills">
               <label class="pill"><input type="radio" name="operation" value="multiply" id="operation-multiply"><span><b class="op-sign" aria-hidden="true">×</b>Multiplication</span></label>
               <label class="pill"><input type="radio" name="operation" value="add" id="operation-add"><span><b class="op-sign" aria-hidden="true">+</b>Addition</span></label>
+              <label class="pill"><input type="radio" name="operation" value="read" id="operation-read"><span><b class="op-sign" aria-hidden="true">Aa</b>Reading</span></label>
             </div>
           </div>
 
+          <!-- Reading: one page of the phonics homework packet -->
+          <div class="field-group" id="read-fields" hidden>
+            <div class="field" role="group" aria-labelledby="page-label">
+              <h2 class="label" id="page-label">Homework page</h2>
+              <div class="page-row">
+                <button type="button" class="icon-btn page-step" id="page-down" aria-label="Page before">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12"/></svg>
+                </button>
+                <label class="sr-only" for="read-page">Page number</label>
+                <input type="number" class="page-input" id="read-page" min="4" max="143" step="1" inputmode="numeric">
+                <button type="button" class="icon-btn page-step" id="page-up" aria-label="Next page">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 12h12M12 6v12"/></svg>
+                </button>
+              </div>
+              <p class="field-help" id="page-help"></p>
+            </div>
+
+            <div class="field" role="radiogroup" aria-labelledby="part-label">
+              <h2 class="label" id="part-label">Read</h2>
+              <div class="pills">
+                <label class="pill"><input type="radio" name="part" value="words" id="part-words"><span>Words</span></label>
+                <label class="pill"><input type="radio" name="part" value="sounds" id="part-sounds"><span>Sounds</span></label>
+                <label class="pill"><input type="radio" name="part" value="sentences" id="part-sentences"><span>Sentences</span></label>
+              </div>
+              <p class="field-help" id="part-help"></p>
+            </div>
+
+            <div class="field" role="radiogroup" aria-labelledby="read-focus-label" id="read-focus-field">
+              <h2 class="label" id="read-focus-label">Focus</h2>
+              <div class="pills">
+                <label class="pill"><input type="radio" name="readFocus" value="all" id="read-focus-all"><span>Everything</span></label>
+                <label class="pill"><input type="radio" name="readFocus" value="weak" id="read-focus-weak"><span>Weak spots</span></label>
+              </div>
+              <p class="field-help" id="read-focus-help"></p>
+            </div>
+
+            <div class="field" role="radiogroup" aria-labelledby="read-count-label" id="read-count-field">
+              <h2 class="label" id="read-count-label">How many</h2>
+              <div class="pills" id="read-count-pills"></div>
+            </div>
+
+            <div class="field" role="radiogroup" aria-labelledby="engine-label">
+              <h2 class="label" id="engine-label">Checking</h2>
+              <div class="pills">
+                <label class="pill"><input type="radio" name="engine" value="online" id="engine-online"><span>By voice, online</span></label>
+                <label class="pill"><input type="radio" name="engine" value="vosk" id="engine-vosk"><span>By voice, on this device</span></label>
+                <label class="pill"><input type="radio" name="engine" value="off" id="engine-off"><span>A grown-up checks</span></label>
+              </div>
+              <p class="field-help" id="engine-help" aria-live="polite"></p>
+              <p class="field-help old-android" id="old-android" hidden></p>
+              <button type="button" class="text-btn" id="read-vosk-retry" hidden>Try loading it again</button>
+            </div>
+          </div>
+
+          <div class="field-group" id="math-fields">
           <div class="field" role="group" aria-labelledby="tables-label">
             <div class="field-head">
               <h2 class="label" id="tables-label">Times tables</h2>
@@ -125,13 +181,21 @@
             <h2 class="label" id="count-label">Questions per round</h2>
             <div class="pills" id="count-pills"></div>
           </div>
+          </div>
         </div>
 
         <section class="panel preview" aria-labelledby="chart-label">
           <h2 class="label" id="chart-label">In this quiz</h2>
-          <div class="chart" id="chart" aria-hidden="true"></div>
-          <p class="chart-note" id="chart-note">Shaded facts can come up, in either order: 6 × 8 or 8 × 6.</p>
-          <p class="chart-note chart-key" id="chart-key" hidden><span class="key-dot" aria-hidden="true"></span>Needs practice, so it comes up more often</p>
+          <div class="field-group" id="math-preview">
+            <div class="chart" id="chart" aria-hidden="true"></div>
+            <p class="chart-note" id="chart-note">Shaded facts can come up, in either order: 6 × 8 or 8 × 6.</p>
+            <p class="chart-note chart-key" id="chart-key" hidden><span class="key-dot" aria-hidden="true"></span>Needs practice, so it comes up more often</p>
+          </div>
+          <div class="field-group" id="read-preview" hidden>
+            <ul class="word-chips" id="read-chips"></ul>
+            <p class="chart-note" id="read-note"></p>
+            <p class="chart-note chart-key" id="read-key" hidden><span class="key-dot" aria-hidden="true"></span>Needs practice, so it comes up more often</p>
+          </div>
         </section>
 
         <div class="start-area">
@@ -177,6 +241,41 @@
       <p class="feedback" id="feedback" role="status"></p>
     </section>
 
+    <!-- Reading: one word, sound or sentence at a time, checked by voice or by a grown-up -->
+    <section class="screen game read" id="read" aria-label="Reading" hidden>
+      <div class="game-bar">
+        <button type="button" class="icon-btn quit" id="read-quit" aria-label="Stop and go back to settings">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>
+        </button>
+        <p class="progress-label" id="read-progress"></p>
+        <p class="score">
+          <svg class="score-star" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.5l2.65 6.36 6.86.55-5.23 4.48 1.6 6.7L12 17l-5.88 3.59 1.6-6.7-5.23-4.48 6.86-.55z"/></svg>
+          <span class="sr-only">Score:</span>
+          <span id="read-score">0</span>
+        </p>
+        <button type="button" class="icon-btn" id="read-sound" aria-label="Sound effects" aria-pressed="true">
+          <svg class="icon-sound-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.2L12 5.5v13l-4.8-4H4z"/><path d="M15.6 9.2a4 4 0 0 1 0 5.6M18.3 6.6a7.6 7.6 0 0 1 0 10.8"/></svg>
+          <svg class="icon-sound-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9.5h3.2L12 5.5v13l-4.8-4H4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></svg>
+        </button>
+        <ol class="progress-cells" id="read-cells" aria-hidden="true"></ol>
+      </div>
+
+      <div class="board read-board">
+        <p class="read-kind" id="read-kind"></p>
+        <p class="question read-item" id="read-item" aria-live="polite"></p>
+        <p class="listen" id="read-listening" hidden><span class="listen-dot" aria-hidden="true"></span><span id="read-listen-text">Listening…</span><span class="meter meter-board" id="read-meter" aria-hidden="true" hidden><span class="meter-fill"></span></span></p>
+      </div>
+
+      <p class="feedback" id="read-feedback" role="status"></p>
+      <p class="read-hint" id="read-hint"></p>
+      <div class="actions read-actions">
+        <button type="button" class="btn btn-quiet" id="read-hear">Hear it</button>
+        <button type="button" class="btn btn-quiet" id="read-again">Try again</button>
+        <button type="button" class="btn btn-quiet" id="read-skip">Not yet</button>
+        <button type="button" class="btn btn-go" id="read-right">Read it right ✓</button>
+      </div>
+    </section>
+
     <!-- Results: stars, stats, and the facts to practice -->
     <section class="screen results" id="results" aria-labelledby="result-title" hidden>
       <div class="panel result-panel">
@@ -191,7 +290,7 @@
         <dl class="stats">
           <div class="stat"><dt>Right</dt><dd id="stat-right"></dd></div>
           <div class="stat"><dt>Best streak</dt><dd id="stat-streak"></dd></div>
-          <div class="stat"><dt>Avg. time</dt><dd id="stat-time"></dd></div>
+          <div class="stat"><dt id="stat-time-label">Avg. time</dt><dd id="stat-time"></dd></div>
         </dl>
         <div class="review" id="review">
           <h3 class="label">Practice these</h3>
@@ -223,6 +322,7 @@
       <div class="pills report-ops" id="report-ops" role="radiogroup" aria-label="Which facts to show" hidden>
         <label class="pill"><input type="radio" name="report-op" value="multiply" id="report-op-multiply"><span><b class="op-sign" aria-hidden="true">×</b>Multiplication</span></label>
         <label class="pill"><input type="radio" name="report-op" value="add" id="report-op-add"><span><b class="op-sign" aria-hidden="true">+</b>Addition</span></label>
+        <label class="pill"><input type="radio" name="report-op" value="read" id="report-op-read"><span><b class="op-sign" aria-hidden="true">Aa</b>Reading</span></label>
       </div>
 
       <p class="panel report-note" id="report-note" aria-live="polite" hidden></p>
@@ -245,6 +345,7 @@
           <section class="panel" aria-labelledby="map-title">
             <h3 class="label" id="map-title">Times-table map</h3>
             <div class="chart mastery" id="mastery-chart" aria-hidden="true"></div>
+            <div class="word-wall" id="word-wall" hidden></div>
             <ul class="legend" id="mastery-legend"></ul>
             <p class="chart-detail" id="map-detail" aria-live="polite"></p>
             <button type="button" class="text-btn view-toggle" id="map-list-toggle" aria-expanded="false" aria-controls="map-list">Show as a list</button>
@@ -259,7 +360,7 @@
                 <figcaption>Right answers</figcaption>
                 <div class="trend-plot" id="trend-right" tabindex="0" aria-label="Right answers over time. Use the arrow keys to step through."></div>
               </figure>
-              <figure class="trend">
+              <figure class="trend" id="trend-time-figure">
                 <figcaption>Typical time to answer</figcaption>
                 <div class="trend-plot" id="trend-time" tabindex="0" aria-label="Typical time to answer, over time. Use the arrow keys to step through."></div>
               </figure>
@@ -268,7 +369,7 @@
             <button type="button" class="text-btn view-toggle" id="trend-table-toggle" aria-expanded="false" aria-controls="trend-table-box">Show as a table</button>
             <div class="table-box" id="trend-table-box" hidden>
               <table class="trend-table">
-                <thead><tr><th scope="col" id="trend-table-when">Day</th><th scope="col">Questions</th><th scope="col">Right</th><th scope="col">Typical time</th></tr></thead>
+                <thead><tr><th scope="col" id="trend-table-when">Day</th><th scope="col">Questions</th><th scope="col">Right</th><th scope="col" id="trend-time-head">Typical time</th></tr></thead>
                 <tbody id="trend-table-rows"></tbody>
               </table>
             </div>
@@ -287,6 +388,10 @@
   <script src="quiz.js"></script>
   <script src="players.js"></script>
   <script src="insights.js"></script>
+  <script src="lessons.js"></script>
+  <script src="reading.js"></script>
+  <script src="listen.js"></script>
+  <script src="reader.js"></script>
   <script src="app.js"></script>
   <script src="pwa.js"></script>
 </body>

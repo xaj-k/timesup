@@ -1,5 +1,5 @@
 /*
- * Tests for quiz.js, insights.js and reading.js. Open test/index.html in a browser to run them.
+ * Tests for quiz.js, insights.js, lessons.js and reading.js. Open test/index.html in a browser to run them.
  */
 (function (global) {
   'use strict';
@@ -403,6 +403,102 @@
     for (const group of Reading.PHONICS) {
       for (const word of group.words) check(Reading.mark(word, group.sound).some((p) => p.mark), `${word} should show ${group.sound}`);
     }
+  });
+
+  test('reading: the packet has pages 4 to 143, with sounds, sight words and sentences', () => {
+    const pages = global.Lessons.PAGES;
+    same(pages.length, 140, 'pages');
+    same([pages[0][0], pages[139][0]], [4, 143], 'first and last page');
+    same(pages.reduce((n, p) => n + p[3].length, 0), 680, 'sentences');
+    const twenty = Reading.lesson(20);
+    same(twenty.newSound, 't', 'page 20 teaches t');
+    same(twenty.newWords, ['yellow', 'green', 'I', 'see'], 'sight words new on page 20');
+    same(twenty.sounds, ['T', 'l', 'h', 'L', 't', 'o', 'G'], 'each printed sound once, in order');
+    same(twenty.decodable.map((d) => d.word), ['log', 'hat', 'pop', 'hog'], 'words to sound out come from the sentences');
+    same(Reading.lesson(126).newSound, 'silent e', 'silent e has no mark in the Sounds line, but is taught on page 126');
+    same(Reading.lesson(3), null, 'no lesson before page 4');
+  });
+
+  test('reading: words to sound out skip sight words and names, and mark the newest sound in them', () => {
+    const l = Reading.lesson(115);
+    const words = l.decodable.map((d) => d.word);
+    check(!words.includes('trish') && !words.includes('shon'), `names are left out: ${words}`);
+    check(!words.includes('the') && !words.includes('went'), 'sight words are left out');
+    same(l.decodable.find((d) => d.word === 'ship').sound, 'sh', 'ship shows sh on the sh page');
+    same(l.decodable.find((d) => d.word === 'lick').sound, 'ck', 'lick shows ck, taught before');
+    same(l.decodable.find((d) => d.word === 'dog').sound, null, 'dog has nothing to mark');
+    same(Reading.lesson(126).decodable.find((d) => d.word === 'pine').sound, 'silent e', 'pine shows its silent e');
+    check(l.names.has('tim') && !l.names.has('mom') && !l.names.has('pop'), 'a name is never written in lowercase (Mom and pop are)');
+  });
+
+  test('reading: one word counts when said nearly on its own', () => {
+    same(Reading.checkWord('ship', [{ transcript: 'ship' }]).ok, true, 'the word');
+    same(Reading.checkWord('ship', [{ transcript: 'sh ship' }]).ok, true, 'sounded out first');
+    same(Reading.checkWord('two', [{ transcript: '2' }]).ok, true, 'sounds the same');
+    same(Reading.checkWord('ship', [{ transcript: 'sip' }]), { ok: false, match: null, long: false }, 'a different word is a miss');
+    same(Reading.checkWord('ship', [{ transcript: 'say the whole word ship' }]), { ok: false, match: null, long: true }, 'talk with the word in it does not count either way');
+    same(Reading.checkWord('ship', [{ transcript: 'ship', unknown: 3 }]).long, true, 'other words Vosk could not name count toward the length');
+    same(Reading.checkWord('ship', []).long, false, 'nothing heard');
+  });
+
+  test('reading: a sentence counts when each word is heard in order', () => {
+    const show = (r) => r.matched.map((m, i) => (m ? r.words[i] : '_')).join(' ');
+    same(show(Reading.checkSentence('I see one green log.', 'I see 1 green log')), 'i see one green log', 'digits and capitals are fine');
+    same(Reading.checkSentence('I see one green log.', 'I see one green').ok, false, 'a missing word');
+    same(show(Reading.checkSentence('I see one green log.', 'I see one')), 'i see one _ _', 'partly read, for lighting up words as they are read');
+    same(Reading.checkSentence('See the hog.', 'see hog').ok, false, 'a short sentence needs every word');
+    const names = Reading.lesson(115).names;
+    same(Reading.checkSentence('Trish and Shon wish they can wash the dish.', 'trish and sean wish they can wash a dish', names).ok, true, 'names and one "the" may be missed');
+    same(Reading.checkSentence('The ship will crash into the trash.', 'the ship will crash into trash can', names).ok, true, 'extra words are fine');
+    same(Reading.checkSentence('The ship will crash into the trash.', 'the sheep will crash into the trash', names).ok, false, 'a misread word is not');
+  });
+
+  test('reading: a round has the new sight words, no repeats, and leans on weak spots', () => {
+    const small = Reading.lesson(12);
+    same(Reading.createRound(small, { part: 'words', count: 10, focus: 'all' }, () => 1, seeded(3)).length, 4, 'a page with fewer than 10 words uses them all');
+    const l = Reading.lesson(20);
+    const round = Reading.createRound(l, { part: 'words', count: 10, focus: 'all' }, () => 1, seeded(3));
+    same(round.length, 10, 'ten of the 12 on page 20');
+    for (const w of l.newWords) check(round.some((i) => i.text === w), `${w} is new on this page`);
+    same(new Set(round.map((i) => i.key)).size, round.length, 'no repeats');
+    const big = Reading.lesson(115);
+    const weak = Reading.keyOf('sight', 'went');
+    let picked = 0;
+    for (let n = 0; n < 40; n++) {
+      const r = Reading.createRound(big, { part: 'words', count: 10, focus: 'weak' }, (key) => (key === weak ? 20 : 1), seeded(n));
+      same(r.length, 10, 'ten items');
+      if (r.some((i) => i.key === weak)) picked += 1;
+    }
+    check(picked >= 30, `a weak word comes up in most weak-spots rounds (${picked} of 40)`);
+    const sounds = Reading.createRound(big, { part: 'sounds', count: 10, focus: 'all' }, () => 1, seeded(5));
+    check(sounds.some((i) => i.text === 'sh'), 'the new sound always comes up');
+    same(Reading.createRound(big, { part: 'sentences', count: 10, focus: 'all' }).map((i) => i.text), big.sentences, 'sentences in the page order');
+    same(Reading.createRound(big, { part: 'words', count: 0, focus: 'all' }).length, big.words.length + big.decodable.length, '0 means the whole page');
+  });
+
+  test('reading: history levels, weak spots, and math history ignores reading rounds', () => {
+    const round = (minutes, answers) => ({ id: `r${minutes}`, startedAt: new Date(Date.UTC(2026, 10, 1, 0, minutes)).toISOString(), settings: { operation: 'read', page: 20, part: 'words', count: 10, focus: 'all', engine: 'online' }, answers, finished: true });
+    const said = (item, right, extra = {}) => ({ kind: 'sight', item, right, how: right ? 'voice' : 'skip', tries: 1, helped: false, ms: 900, ...extra });
+    const rounds = [
+      round(1, [said('see', true), said('green', false, { heard: 'grain' }), said('the', true)]),
+      round(2, [said('see', true), said('green', true), said('the', true)]),
+      round(3, [said('See', true), said('green', false, { heard: 'grin' }), said('the', true)]),
+      { id: 'm', startedAt: '2026-11-01T00:04:00Z', settings: { operation: 'multiply', tables: [2], multiplyBy: 'same', timeLimit: 0, count: 1 }, answers: [{ a: 2, b: 2, picked: 4, ms: 900 }] },
+    ];
+    const a = Reading.analyze(rounds, Date.UTC(2026, 10, 2));
+    same(a.totals.rounds, 3, 'only reading rounds');
+    same(a.items.get('w:see').level, 'mastered', 'see, right 3 times');
+    same(a.items.get('w:green').level, 'practice', 'green, missed last time');
+    same(a.items.get('w:green').lastHeard, 'grin', 'what the recognizer heard the last time it was missed');
+    same(Reading.trickiest(a).map((e) => e.item), ['green'], 'trickiest');
+    same(Reading.weightFinder(a)('w:green') > Reading.weightFinder(a)('w:see'), true, 'weak spots lean on green');
+    same(Insights.analyze(rounds).totals.rounds, 1, 'the multiplication report skips reading rounds');
+    same(Insights.overall(rounds).rounds, 1, 'and so do the math totals');
+  });
+
+  test('reading: saved settings are cleaned up', () => {
+    same(Reading.sanitizeSettings({ page: 999, part: 'spelling', count: 7, engine: 'vosk' }), { page: 4, part: 'words', count: 10, focus: 'all', engine: 'vosk' }, 'bad values fall back');
+    same(Reading.sanitizeSettings({ page: 47, part: 'sentences', count: 0, focus: 'weak', engine: 'off' }), { page: 47, part: 'sentences', count: 0, focus: 'weak', engine: 'off' }, 'good values stay');
   });
 
   const failed = results.filter((r) => !r.ok).length;

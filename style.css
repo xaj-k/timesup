@@ -172,7 +172,7 @@ button, label, select, input { touch-action: manipulation; }
 }
 
 /* A swipe during a round shouldn't pull the page down or bounce it. */
-html:has(#game:not([hidden])) { overscroll-behavior-y: none; }
+html:has(#game:not([hidden])), html:has(#read:not([hidden])) { overscroll-behavior-y: none; }
 
 :focus-visible { outline: 3px solid var(--pen); outline-offset: 3px; }
 
@@ -689,7 +689,7 @@ html:has(#game:not([hidden])) { overscroll-behavior-y: none; }
 }
 
 .quit { grid-area: quit; }
-#sound { grid-area: sound; }
+#sound, #read-sound { grid-area: sound; }
 
 .progress-label {
   grid-area: label;
@@ -744,6 +744,7 @@ html:has(#game:not([hidden])) { overscroll-behavior-y: none; }
 .progress-cells li.is-current { border-color: var(--ink-soft); background: var(--card); }
 .progress-cells li.is-right { border-color: var(--right); background: var(--right); }
 .progress-cells li.is-wrong { border-color: var(--wrong); background: var(--wrong); }
+.progress-cells li.is-later { border-color: var(--sun); background: var(--sun); } /* not yet, or read after Hear it */
 
 /* The chalkboard */
 .board {
@@ -1149,6 +1150,110 @@ html:has(#game:not([hidden])) { overscroll-behavior-y: none; }
 .trend-table thead th { color: var(--ink-soft); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; }
 
 .round-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+
+/* ---------- reading ---------- */
+
+.field-group { display: contents; }
+
+.page-row { display: flex; align-items: center; gap: 10px; }
+.page-input {
+  width: 4.2ch;
+  padding: 6px 8px;
+  border: 2px solid var(--rule);
+  border-radius: var(--radius-sm);
+  background: var(--card);
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 30px;
+  line-height: 1.1;
+  text-align: center;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+.page-input::-webkit-inner-spin-button, .page-input::-webkit-outer-spin-button { margin: 0; -webkit-appearance: none; }
+.page-input:focus-visible { outline: 3px solid var(--pen); outline-offset: 2px; }
+.page-step:disabled { opacity: 0.4; cursor: default; }
+.old-android { color: var(--wrong-text); font-weight: 700; }
+
+/* Words, sounds or sentences as small tiles: the setup preview and the word wall. */
+.word-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.word-chip {
+  position: relative;
+  padding: 4px 10px;
+  border: 1.5px solid var(--rule);
+  border-radius: 8px;
+  background: var(--card-sunk);
+  color: var(--ink);
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+.word-chip.is-new { border-color: var(--pen); box-shadow: inset 0 0 0 1px var(--pen); }
+.word-chip.is-decodable { background: var(--card); }
+.word-chip.is-sentence { flex: 1 1 100%; font-weight: 400; }
+.word-chip.is-weak::after {
+  content: "";
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 9px;
+  height: 9px;
+  border: 2px solid var(--card);
+  border-radius: 50%;
+  background: var(--flag);
+}
+.word-chip .sound-part { color: var(--pen); text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 3px; }
+
+.word-wall { display: grid; gap: 14px; }
+.wall-group { display: grid; gap: 8px; }
+.wall-title { margin: 0; color: var(--ink-soft); font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.wall-chip { cursor: pointer; }
+.wall-chip.lv-mastered { border-color: transparent; background: var(--lv-mastered); color: var(--lv-mastered-ink); }
+.wall-chip.lv-learning { border-color: transparent; background: var(--lv-learning); color: var(--lv-learning-ink); }
+.wall-chip.lv-practice { border-color: transparent; background: var(--lv-practice); color: var(--lv-practice-ink); }
+.wall-chip.lv-practice::after {
+  content: "";
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 9px;
+  height: 9px;
+  border: 2px solid var(--card);
+  border-radius: 50%;
+  background: var(--flag);
+}
+.wall-chip.lv-new { font-weight: 400; opacity: 0.6; }
+.wall-chip.is-picked, .wall-chip:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; opacity: 1; }
+
+/* The reading screen */
+.read-kind { margin: -4px 0 0; color: var(--chalk-soft); font-size: 16px; font-weight: 700; text-align: left; }
+.read-item { overflow-wrap: anywhere; transition: opacity 0.15s ease-out; }
+/* A new item waits, invisible, until the microphone is on, so its first sound isn't lost. */
+.read-item.is-waiting { opacity: 0; transition: none; }
+.read-item.is-sound { font-size: clamp(84px, min(26vw, 24vh), 170px); }
+.read-item.is-sentence { font-size: clamp(30px, 6.4vw, 54px); line-height: 1.3; letter-spacing: 0.01em; text-wrap: balance; }
+.read-item .sound-part { color: var(--sun); text-decoration: underline; text-decoration-thickness: 0.08em; text-underline-offset: 0.12em; }
+.read-word { transition: color 0.2s; }
+.read-word.is-read { color: var(--sun); }
+.read-hint { min-height: 1.4em; margin: -8px 0 0; color: var(--ink-soft); font-size: 17px; text-align: center; text-wrap: balance; }
+.read-actions .btn { flex: 1 1 150px; padding-inline: 12px; font-size: 20px; }
+.review-fact.is-sentence, .tricky-fact.is-sentence { font-family: var(--font-body); font-size: 18px; font-weight: 700; }
+
+/* Listening: a dot that pulses while the mic is on, and the mic level. Shared with the speech check. */
+.listen { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 28px; margin: 0; color: var(--chalk-soft); font-weight: 700; }
+.listen-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--chalk-soft); opacity: 0.45; }
+/* Hidden but still taking its space, so the buttons below don't jump when listening starts and stops. */
+.listen[hidden] { display: flex !important; visibility: hidden; }
+.listen.is-on .listen-dot { background: var(--time-low); opacity: 1; animation: listen-pulse 1s ease-in-out infinite; }
+.meter { position: relative; display: block; height: 14px; border-radius: 7px; background: var(--rule); overflow: hidden; }
+.meter-fill { position: absolute; inset: 0; border-radius: inherit; background: var(--series); transform: scaleX(0); transform-origin: left center; }
+.meter-board { flex: 0 0 96px; height: 10px; background: rgba(255, 255, 255, 0.16); }
+.meter-board .meter-fill { background: var(--chalk); }
+@keyframes listen-pulse { 50% { transform: scale(0.6); opacity: 0.5; } }
+@media (prefers-reduced-motion: reduce) {
+  .read-item, .read-word { transition: none; }
+  .listen.is-on .listen-dot { animation: none; }
+}
 
 @media (min-width: 860px) {
   .round-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
