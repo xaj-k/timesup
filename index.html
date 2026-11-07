@@ -79,12 +79,12 @@
               <p class="field-help" id="page-help"></p>
             </div>
 
-            <div class="field" role="radiogroup" aria-labelledby="part-label">
+            <div class="field" role="group" aria-labelledby="part-label">
               <h2 class="label" id="part-label">Read</h2>
               <div class="pills">
-                <label class="pill"><input type="radio" name="part" value="words" id="part-words"><span>Words</span></label>
-                <label class="pill"><input type="radio" name="part" value="sounds" id="part-sounds"><span>Sounds</span></label>
-                <label class="pill"><input type="radio" name="part" value="sentences" id="part-sentences"><span>Sentences</span></label>
+                <label class="pill"><input type="checkbox" name="readPart" value="sounds" id="part-sounds"><span>Sounds</span></label>
+                <label class="pill"><input type="checkbox" name="readPart" value="words" id="part-words"><span>Words</span></label>
+                <label class="pill"><input type="checkbox" name="readPart" value="sentences" id="part-sentences"><span>Sentences</span></label>
               </div>
               <p class="field-help" id="part-help"></p>
             </div>
@@ -98,11 +98,6 @@
               <p class="field-help" id="read-focus-help"></p>
             </div>
 
-            <div class="field" role="radiogroup" aria-labelledby="read-count-label" id="read-count-field">
-              <h2 class="label" id="read-count-label">How many</h2>
-              <div class="pills" id="read-count-pills"></div>
-            </div>
-
             <div class="field" role="radiogroup" aria-labelledby="engine-label">
               <h2 class="label" id="engine-label">Checking</h2>
               <div class="pills">
@@ -113,6 +108,12 @@
               <p class="field-help" id="engine-help" aria-live="polite"></p>
               <p class="field-help old-android" id="old-android" hidden></p>
               <button type="button" class="text-btn" id="read-vosk-retry" hidden>Try loading it again</button>
+            </div>
+
+            <div class="field" role="radiogroup" aria-labelledby="read-count-label" id="read-count-field">
+              <h2 class="label" id="read-count-label">Per round</h2>
+              <div class="pills" id="read-count-pills"></div>
+              <p class="field-help" id="read-count-help"></p>
             </div>
           </div>
 
@@ -192,7 +193,7 @@
             <p class="chart-note chart-key" id="chart-key" hidden><span class="key-dot" aria-hidden="true"></span>Needs practice, so it comes up more often</p>
           </div>
           <div class="field-group" id="read-preview" hidden>
-            <ul class="word-chips" id="read-chips"></ul>
+            <div class="read-groups" id="read-groups"></div>
             <p class="chart-note" id="read-note"></p>
             <p class="chart-note chart-key" id="read-key" hidden><span class="key-dot" aria-hidden="true"></span>Needs practice, so it comes up more often</p>
           </div>

@@ -453,27 +453,46 @@
     same(Reading.checkSentence('The ship will crash into the trash.', 'the sheep will crash into the trash', names).ok, false, 'a misread word is not');
   });
 
-  test('reading: a round has the new sight words, no repeats, and leans on weak spots', () => {
-    const small = Reading.lesson(12);
-    same(Reading.createRound(small, { part: 'words', count: 10, focus: 'all' }, () => 1, seeded(3)).length, 4, 'a page with fewer than 10 words uses them all');
+  test('reading: a round always has the number asked for, going on to the next pages when a page runs out', () => {
+    const all = ['sounds', 'words', 'sentences'];
+    for (const [page, parts, count] of [[4, ['words'], 10], [8, ['words'], 30], [4, all, 10], [20, all, 20], [115, ['sounds'], 30], [142, ['sentences'], 30]]) {
+      const round = Reading.createRound(page, { parts, count, focus: 'all' }, () => 1, seeded(page + count));
+      same(round.length, count, `page ${page}, ${parts.join(' and ')}, ${count}`);
+      same(new Set(round.map((i) => (i.kind === 'sound' ? i.text : i.key))).size, count, `no repeats on page ${page}`);
+    }
+    const four = Reading.planRound(4, ['words'], 10);
+    same([four.from, four.pages.includes(8), four.parts.words.take], [4, true, 10], 'page 4 has one word, so 10 words go on to pages 8 and on');
+    const end = Reading.planRound(142, ['sentences'], 30);
+    check(end.from < 142 && end.to === 143, `near the end of the packet it goes back to earlier pages: ${end.from}–${end.to}`);
+    same(Reading.planRound(12, all, 0).pages, [12], 'the whole page uses only that page');
+    same(Reading.createRound(12, { parts: all, count: 0, focus: 'all' }).length, 13, 'page 12 has 6 sounds, 4 words and 3 sentences');
+  });
+
+  test('reading: a round goes sounds, then words, then sentences, sharing the count out', () => {
+    same(Reading.shares(['sounds', 'words', 'sentences'], 10), { words: 4, sounds: 3, sentences: 3 }, '10 shared out');
+    same(Reading.shares(['words', 'sentences'], 20), { words: 10, sentences: 10 }, '20 shared out');
+    const round = Reading.createRound(20, { parts: ['sounds', 'words', 'sentences'], count: 20, focus: 'all' }, () => 1, seeded(3));
+    const order = round.map((i) => ({ sound: 0, sight: 1, word: 1, sentence: 2 }[i.kind]));
+    same(order.slice().sort((x, y) => x - y), order, 'in the packet’s order');
+    const sentences = round.filter((i) => i.kind === 'sentence').map((i) => i.text);
+    same(sentences, Reading.lesson(20).sentences.concat(Reading.lesson(21).sentences).slice(0, sentences.length), 'sentences in the packet’s order, page 20 first');
     const l = Reading.lesson(20);
-    const round = Reading.createRound(l, { part: 'words', count: 10, focus: 'all' }, () => 1, seeded(3));
-    same(round.length, 10, 'ten of the 12 on page 20');
-    for (const w of l.newWords) check(round.some((i) => i.text === w), `${w} is new on this page`);
-    same(new Set(round.map((i) => i.key)).size, round.length, 'no repeats');
+    const words = Reading.createRound(20, { parts: ['words'], count: 10, focus: 'all' }, () => 1, seeded(4));
+    for (const w of l.newWords) check(words.some((i) => i.text === w), `${w} is new on page 20, so it always comes up`);
+    check(words.every((i) => i.page === 20), 'page 20 has 12 words, so 10 stay on page 20');
+  });
+
+  test('reading: weak spots lean on what was missed', () => {
     const big = Reading.lesson(115);
     const weak = Reading.keyOf('sight', 'went');
     let picked = 0;
     for (let n = 0; n < 40; n++) {
-      const r = Reading.createRound(big, { part: 'words', count: 10, focus: 'weak' }, (key) => (key === weak ? 20 : 1), seeded(n));
-      same(r.length, 10, 'ten items');
+      const r = Reading.createRound(115, { parts: ['words'], count: 10, focus: 'weak' }, (key) => (key === weak ? 20 : 1), seeded(n));
       if (r.some((i) => i.key === weak)) picked += 1;
     }
     check(picked >= 30, `a weak word comes up in most weak-spots rounds (${picked} of 40)`);
-    const sounds = Reading.createRound(big, { part: 'sounds', count: 10, focus: 'all' }, () => 1, seeded(5));
-    check(sounds.some((i) => i.text === 'sh'), 'the new sound always comes up');
-    same(Reading.createRound(big, { part: 'sentences', count: 10, focus: 'all' }).map((i) => i.text), big.sentences, 'sentences in the page order');
-    same(Reading.createRound(big, { part: 'words', count: 0, focus: 'all' }).length, big.words.length + big.decodable.length, '0 means the whole page');
+    check(Reading.createRound(115, { parts: ['sounds'], count: 10, focus: 'all' }, () => 1, seeded(5)).some((i) => i.text === 'sh'), 'the newest sound always comes up');
+    check(big.words.length > 10, 'page 115 has plenty of words');
   });
 
   test('reading: history levels, weak spots, and math history ignores reading rounds', () => {
@@ -497,8 +516,10 @@
   });
 
   test('reading: saved settings are cleaned up', () => {
-    same(Reading.sanitizeSettings({ page: 999, part: 'spelling', count: 7, engine: 'vosk' }), { page: 4, part: 'words', count: 10, focus: 'all', engine: 'vosk' }, 'bad values fall back');
-    same(Reading.sanitizeSettings({ page: 47, part: 'sentences', count: 0, focus: 'weak', engine: 'off' }), { page: 47, part: 'sentences', count: 0, focus: 'weak', engine: 'off' }, 'good values stay');
+    same(Reading.sanitizeSettings({ page: 999, parts: ['spelling', 'words'], count: 7, engine: 'vosk' }), { page: 4, parts: ['words'], count: 10, focus: 'all', engine: 'vosk' }, 'bad values fall back');
+    same(Reading.sanitizeSettings({ page: 47, parts: ['sentences', 'sounds'], count: 0, focus: 'weak', engine: 'off', to: 49 }), { page: 47, parts: ['sounds', 'sentences'], count: 0, focus: 'weak', engine: 'off', to: 49 }, 'good values stay, parts in the packet’s order');
+    same(Reading.sanitizeSettings({ part: 'sentences' }).parts, ['sentences'], 'settings saved with one part still work');
+    same(Reading.sanitizeSettings(null).parts, ['sounds', 'words', 'sentences'], 'everything, to start with');
   });
 
   const failed = results.filter((r) => !r.ok).length;

@@ -1191,6 +1191,9 @@ html:has(#game:not([hidden])), html:has(#read:not([hidden])) { overscroll-behavi
 .word-chip.is-new { border-color: var(--pen); box-shadow: inset 0 0 0 1px var(--pen); }
 .word-chip.is-decodable { background: var(--card); }
 .word-chip.is-sentence { flex: 1 1 100%; font-weight: 400; }
+.word-chip.is-later { border-style: dashed; } /* from a page after (or before) the one picked */
+.read-groups { display: grid; gap: 14px; }
+.read-group { display: grid; gap: 8px; }
 .word-chip.is-weak::after {
   content: "";
   position: absolute;

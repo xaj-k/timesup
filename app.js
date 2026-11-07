@@ -417,6 +417,21 @@
 
   const PART_NOUNS = { words: ['word', 'words'], sounds: ['sound', 'sounds'], sentences: ['sentence', 'sentences'] };
 
+  // "page 20" or "pages 20–22"
+  function pagesText(plan) {
+    return plan.from === plan.to ? `page ${plan.from}` : `pages ${plan.from}–${plan.to}`;
+  }
+
+  // "3 sounds, 4 words, and 3 sentences"
+  function partsText(plan) {
+    return Insights.listOf(Reading.PARTS.filter((part) => plan.parts[part] && plan.parts[part].take)
+      .map((part) => { const n = plan.parts[part].take; return `${n} ${PART_NOUNS[part][n === 1 ? 0 : 1]}`; }));
+  }
+
+  function readPlan() {
+    return Reading.planRound(reading.page, reading.parts, reading.count);
+  }
+
   function buildReadSetup() {
     $('read-count-pills').innerHTML = Reading.COUNTS.map((n) =>
       `<label class="pill"><input type="radio" name="readCount" value="${n}" id="read-count-${n}"><span>${n || 'Whole page'}</span></label>`
@@ -429,7 +444,7 @@
     // A browser that can't recognize speech itself can't check online.
     if (reading.engine === 'online' && !Listen.BrowserRecognition) reading.engine = 'off';
     $('read-page').value = String(reading.page);
-    form.elements.part.value = reading.part;
+    for (const box of form.elements.readPart) box.checked = reading.parts.includes(box.value);
     form.elements.readCount.value = String(reading.count);
     form.elements.engine.value = reading.engine;
   }
@@ -439,7 +454,7 @@
     const page = Number.isFinite(typed) && typed > 0 ? Math.min(Reading.LAST_PAGE, Math.max(Reading.FIRST_PAGE, typed)) : reading.page;
     reading = Reading.sanitizeSettings({
       page,
-      part: form.elements.part.value,
+      parts: [...form.elements.readPart].filter((box) => box.checked).map((box) => box.value),
       count: Number(form.elements.readCount.value),
       // While Weak spots can't be used, keep the choice for later.
       focus: $('read-focus-weak').disabled ? reading.focus : form.elements.readFocus.value,
@@ -484,10 +499,13 @@
     return entry.analyses.read;
   }
 
+  // Weak spots is for sounds and words (sentences always come in the packet's order).
+  const weakParts = () => reading.parts.some((part) => part !== 'sentences');
+
   function readWeakReady() {
     const player = currentPlayer();
     const analysis = player ? readingFor(player.id) : null;
-    return Boolean(analysis && analysis.totals.rounds) && reading.part !== 'sentences';
+    return Boolean(analysis && analysis.totals.rounds) && weakParts();
   }
 
   function effectiveReadFocus() {
@@ -496,17 +514,6 @@
 
   function readEngine() {
     return reading.engine === 'online' && !Listen.BrowserRecognition ? 'off' : reading.engine;
-  }
-
-  // How many items a round of this page has, and the pool they come from.
-  function readPool(l) {
-    if (reading.part === 'sentences') return l.sentences.length;
-    return reading.part === 'sounds' ? l.sounds.length : l.words.length + l.decodable.length;
-  }
-
-  function readCount(l) {
-    const pool = readPool(l);
-    return reading.part === 'sentences' || !reading.count ? pool : Math.min(reading.count, pool);
   }
 
   function engineHelp() {
@@ -541,21 +548,18 @@
     const l = Reading.lesson(reading.page);
     const player = currentPlayer();
     const analysis = player ? readingFor(player.id) : null;
-    const sentences = reading.part === 'sentences';
+    const plan = readPlan();
 
     const pageBits = [`Newest sound: “${l.newSound}”.`];
     if (l.newWords.length) pageBits.push(`New sight ${l.newWords.length === 1 ? 'word' : 'words'}: ${Insights.listOf(l.newWords)}.`);
     $('page-help').textContent = pageBits.join(' ');
     $('page-down').disabled = reading.page <= Reading.FIRST_PAGE;
     $('page-up').disabled = reading.page >= Reading.LAST_PAGE;
-    $('part-help').textContent = {
-      words: `${plural(l.words.length, 'sight word')}${l.decodable.length ? `, and ${plural(l.decodable.length, 'word')} to sound out from the page’s sentences` : ''}.`,
-      sounds: `${plural(l.sounds.length, 'letter or sound', 'letters and sounds')}. Your child says each sound, and you tap ✓ when it’s right.`,
-      sentences: l.sentences.length ? `${plural(l.sentences.length, 'sentence')}. Words light up as they’re read.` : 'This page has no sentences yet.',
-    }[reading.part];
+    $('part-help').textContent = reading.parts.length
+      ? 'In the packet’s order: sounds (your child says each one, and you tap ✓), then sight words and words to sound out, then sentences.'
+      : 'Pick at least one.';
 
-    $('read-count-field').hidden = sentences;
-    $('read-focus-field').hidden = sentences;
+    $('read-focus-field').hidden = !weakParts();
     $('read-focus-weak').disabled = !readWeakReady();
     const focus = effectiveReadFocus();
     form.elements.readFocus.value = focus;
@@ -571,55 +575,66 @@
       $('old-android').textContent = `This tablet has Android ${device.android}. Reading practice is meant for Android ${Listen.OLD_ANDROID} or newer, so checking by voice may miss more words here.`;
     }
 
-    renderReadPreview(l, analysis, focus);
+    $('read-count-help').textContent = reading.count
+      ? `When page ${reading.page} runs out, the round goes on to the next pages.`
+      : `Everything on page ${reading.page}, and nothing from other pages.`;
 
-    const n = readCount(l);
-    const [one, many] = PART_NOUNS[reading.part];
+    renderReadPreview(plan, analysis, focus);
+
     const engine = readEngine();
-    const how = { online: 'checked by voice', vosk: 'checked by voice on this device', off: 'checked by a grown-up' }[engine];
-    $('summary').textContent = n === 0
-      ? `Page ${reading.page} has no ${many}. Pick another page, or Words or Sounds.`
-      : `${player ? `${player.name}: ` : ''}${sentences ? `the ${n === 1 ? one : `${n} ${many}`}` : `${n} ${n === 1 ? one : many}`} from page ${reading.page}` +
-        `${focus === 'weak' ? ', leaning on weak spots' : ''}, ${reading.part === 'sounds' ? 'checked by a grown-up' : how}.`;
-    $('start').disabled = n === 0 || (engine === 'vosk' && reading.part !== 'sounds' && Listen.vosk.state !== 'ready');
+    const voice = reading.parts.some((part) => part !== 'sounds');
+    const how = !voice || engine === 'off' ? 'checked by a grown-up' : { online: 'checked by voice', vosk: 'checked by voice on this device' }[engine];
+    $('summary').textContent = !reading.parts.length
+      ? 'Pick sounds, words or sentences to start.'
+      : `${player ? `${player.name}: ` : ''}${plan.total} from ${pagesText(plan)}${plan.total ? ` (${partsText(plan)})` : ''}` +
+        `${focus === 'weak' ? ', leaning on weak spots' : ''}, ${how}.`;
+    $('start').disabled = plan.total === 0 || (voice && engine === 'vosk' && Listen.vosk.state !== 'ready');
   }
 
-  // The page's words, sounds or sentences, with the ones that need practice marked.
-  function renderReadPreview(l, analysis, focus) {
+  // What the round picks from, part by part, with the ones that need practice marked.
+  function renderReadPreview(plan, analysis, focus) {
     const levelOf = (key) => {
       const entry = analysis ? analysis.items.get(key) : null;
       return entry ? entry.level : 'new';
     };
     let weak = 0;
-    const chip = (key, className, fill) => {
-      const item = element('li', `word-chip ${className}`.trim());
-      fill(item);
-      if (levelOf(key) === 'practice') {
-        item.classList.add('is-weak');
-        weak += 1;
+    const groups = [];
+    for (const part of Reading.PARTS) {
+      const p = plan.parts[part];
+      if (!p) continue;
+      const pages = [...new Set(p.pool.map((item) => item.page))].sort((x, y) => x - y);
+      const where = !pages.length ? '' : pages.length === 1 ? ` from page ${pages[0]}` : ` from pages ${pages[0]}–${pages[pages.length - 1]}`;
+      const box = element('div', 'read-group');
+      const [one, many] = PART_NOUNS[part];
+      box.append(element('h3', 'wall-title', p.pool.length ? `${p.take} ${p.take === 1 ? one : many}${p.take < p.pool.length ? ` of these ${p.pool.length}` : ''}${where}` : `No ${many} here`));
+      const list = element('ul', 'word-chips');
+      for (const item of p.pool) {
+        const classes = ['word-chip'];
+        if (item.kind === 'sentence') classes.push('is-sentence');
+        if (item.kind === 'word') classes.push('is-decodable');
+        if (item.isNew) classes.push('is-new');
+        if (item.page !== reading.page) classes.push('is-later');
+        if (levelOf(item.key) === 'practice') {
+          classes.push('is-weak');
+          weak += 1;
+        }
+        const chip = element('li', classes.join(' '));
+        if (item.kind === 'word' && item.sound) {
+          for (const piece of Reading.mark(item.text, item.sound)) chip.append(piece.mark ? element('span', 'sound-part', piece.text) : document.createTextNode(piece.text));
+        } else {
+          chip.textContent = item.text;
+        }
+        list.append(chip);
       }
-      return item;
-    };
-    let chips;
-    if (reading.part === 'sounds') {
-      chips = l.sounds.map((t) => chip(Reading.keyOf('sound', t), t.toLowerCase() === l.newSound ? 'is-sound is-new' : 'is-sound', (li) => { li.textContent = t; }));
-    } else if (reading.part === 'sentences') {
-      chips = l.sentences.map((t) => chip(Reading.keyOf('sentence', t), 'is-sentence', (li) => { li.textContent = t; }));
-    } else {
-      chips = [
-        ...l.words.map((w) => chip(Reading.keyOf('sight', w), l.newWords.includes(w) ? 'is-new' : '', (li) => { li.textContent = w; })),
-        ...l.decodable.map((d) => chip(Reading.keyOf('word', d.word), 'is-decodable', (li) => {
-          for (const part of Reading.mark(d.word, d.sound)) li.append(part.mark ? element('span', 'sound-part', part.text) : document.createTextNode(part.text));
-        })),
-      ];
+      box.append(list);
+      groups.push(box);
     }
-    $('read-chips').replaceChildren(...chips);
+    $('read-groups').replaceChildren(...groups);
     $('read-key').hidden = weak === 0 || focus !== 'weak';
-    $('read-note').textContent = {
-      words: 'Sight words first, then words to sound out, with a sound marked. New sight words are outlined, and always come up.',
-      sounds: 'The newest sound is outlined, and always comes up.',
-      sentences: 'Read in this order.',
-    }[reading.part];
+    $('read-note').textContent = plan.total
+      ? 'New sight words and the newest sound are outlined, and always come up. Words to sound out have a sound marked.' +
+        (plan.to > reading.page || plan.from < reading.page ? ' Dashed ones are from other pages.' : '')
+      : '';
   }
 
   // ---------- players and their history ----------
@@ -1147,12 +1162,14 @@
   });
 
   // What gets saved for each reading round. Answers are added as they happen.
-  function newReadRecord(player, focus, engine) {
+  function newReadRecord(player, focus, engine, plan) {
+    const settings = { operation: 'read', page: reading.page, parts: reading.parts.slice(), count: reading.count, focus, engine };
+    if (plan.to !== reading.page) settings.to = plan.to;
     return {
       id: Players.newId('r'),
       playerId: player.id,
       startedAt: new Date().toISOString(),
-      settings: { operation: 'read', page: reading.page, part: reading.part, count: reading.count, focus, engine },
+      settings,
       answers: [],
       finished: false,
     };
@@ -1162,12 +1179,12 @@
     if (readRound) return;
     sound.unlock();
     const player = currentPlayer();
-    const l = Reading.lesson(reading.page);
     const focus = effectiveReadFocus();
-    const items = Reading.createRound(l, { ...reading, focus }, Reading.weightFinder(player ? readingFor(player.id) : null));
+    const plan = readPlan();
+    const items = Reading.createRound(reading.page, { ...reading, focus }, Reading.weightFinder(player ? readingFor(player.id) : null));
     if (!items.length) return;
-    // Sounds are always checked by a grown-up.
-    const engine = reading.part === 'sounds' ? 'off' : readEngine();
+    // Sounds are always checked by a grown-up, so a round of only sounds never listens.
+    const engine = items.every((item) => item.kind === 'sound') ? 'off' : readEngine();
     if (engine === 'vosk') {
       if (Listen.vosk.state !== 'ready') return;
       const opened = await Listen.vosk.open(); // asks for the mic, so it runs straight from the tap
@@ -1180,9 +1197,9 @@
     }
     readRound = {
       player,
-      part: reading.part,
+      parts: [...new Set(items.map((item) => (item.kind === 'sight' || item.kind === 'word' ? 'words' : `${item.kind}s`)))],
       engine,
-      record: player ? newReadRecord(player, focus, engine) : null,
+      record: player ? newReadRecord(player, focus, engine, plan) : null,
       save: player ? Players.makeSaver((record) => store.saveRound(record)) : null,
       lastSave: null,
     };
@@ -1192,8 +1209,8 @@
     reader.start({
       items,
       engine,
-      vocabulary: Reading.vocabulary(l),
-      names: l.names,
+      vocabulary: Reading.vocabularyOf(plan.pages),
+      names: Reading.lesson(reading.page).names,
       // A level bar while listening: Vosk always has the mic; the browser's recognition can share it only on a computer.
       meter: engine === 'vosk' || (engine === 'online' && Listen.canShareMic(device)),
     });
@@ -1217,10 +1234,14 @@
     }
     const total = summary.answers.length;
     const stars = Quiz.starsFor(summary.score, total);
-    const [one, many] = PART_NOUNS[done.part];
     $('stars').querySelectorAll('.star').forEach((star, i) => star.classList.toggle('is-on', i < stars));
     $('result-title').textContent = total && summary.score === total ? 'Perfect reading!' : RESULT_TITLES[stars];
-    $('result-score').textContent = `You ${done.part === 'sounds' ? 'said' : 'read'} ${summary.score} of ${total} ${total === 1 ? one : many} right.`;
+    if (done.parts.length === 1) {
+      const [one, many] = PART_NOUNS[done.parts[0]];
+      $('result-score').textContent = `You ${done.parts[0] === 'sounds' ? 'said' : 'read'} ${summary.score} of ${total} ${total === 1 ? one : many} right.`;
+    } else {
+      $('result-score').textContent = `You got ${summary.score} of ${total} right.`;
+    }
     $('stat-right').textContent = total ? percent(summary.score / total) : '-';
     $('stat-streak').textContent = summary.bestStreak;
     $('stat-time-label').textContent = 'Checked by voice';
@@ -1561,7 +1582,7 @@
   // Every sight word the packet has taught up to the furthest page read, then the sounds and words tried.
   function renderWordWall(analysis) {
     $('map-title').textContent = 'Word wall';
-    const furthest = Math.max(Reading.FIRST_PAGE, ...analysis.rounds.map((r) => r.settings.page));
+    const furthest = Math.max(Reading.FIRST_PAGE, ...analysis.rounds.map((r) => r.settings.to || r.settings.page));
     const taught = [];
     for (let page = Reading.FIRST_PAGE; page <= furthest; page++) {
       const l = Reading.lesson(page);
@@ -1618,13 +1639,13 @@
   }
 
   function renderReadRounds(analysis) {
-    const partNames = { words: 'Words', sounds: 'Sounds', sentences: 'Sentences' };
     const checks = { online: 'checked by voice', vosk: 'checked by voice on the device', off: 'checked by a grown-up' };
     const recent = analysis.rounds.slice(-8).reverse();
     $('round-list').replaceChildren(...recent.map((r) => {
       const s = r.settings;
       const right = r.answers.filter((x) => x.right).length;
-      const what = [`Page ${s.page}`, partNames[s.part], checks[s.engine]];
+      const parts = s.parts.map((part) => PART_NOUNS[part][1]);
+      const what = [s.to && s.to !== s.page ? `Pages ${Math.min(s.page, s.to)}–${Math.max(s.page, s.to)}` : `Page ${s.page}`, parts.length ? `${parts[0][0].toUpperCase()}${Insights.listOf(parts).slice(1)}` : '', checks[s.engine]].filter(Boolean);
       if (s.focus === 'weak') what.push('Weak spots');
       if (!r.finished) what.push(`stopped after ${r.answers.length}`);
       const item = element('li', 'round-row');
@@ -1915,7 +1936,7 @@
     if (reportOp === 'read') {
       activity = 'read';
       reading.focus = 'weak';
-      if (reading.part === 'sentences') reading.part = 'words';
+      if (!weakParts()) reading.parts = ['words'];
     } else {
       activity = 'math';
       switchOperation(reportOp);

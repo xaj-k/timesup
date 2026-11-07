@@ -316,23 +316,35 @@
   }
 
   // ---------- a round of reading ----------
+  // A round starts at a page and has the number of items asked for. It goes
+  // through the parts in the packet's order (sounds, then words, then
+  // sentences). When the page runs out, it goes on to the next pages, so
+  // page breaks don't cut a round short. Only near the end of the packet,
+  // with nothing left after it, does it go back to earlier pages.
 
-  const PARTS = ['words', 'sounds', 'sentences'];
-  const COUNTS = [10, 20, 30, 0]; // 0: everything on the page
+  const PARTS = ['sounds', 'words', 'sentences']; // the packet's order
+  const COUNTS = [10, 20, 30, 0]; // 0: the whole page, and only that page
   const ENGINES = ['online', 'vosk', 'off']; // Google, Vosk on the device, or a grown-up checks
-  const DEFAULT_SETTINGS = Object.freeze({ page: FIRST_PAGE, part: 'words', count: 10, focus: 'all', engine: 'online' });
+  const DEFAULT_SETTINGS = Object.freeze({ page: FIRST_PAGE, parts: PARTS.slice(), count: 10, focus: 'all', engine: 'online' });
 
   function sanitizeSettings(raw) {
     const s = raw && typeof raw === 'object' ? raw : {};
     const d = DEFAULT_SETTINGS;
     const pick = (v, options, fallback) => (options.includes(v) ? v : fallback);
-    return {
-      page: Number.isInteger(s.page) && s.page >= FIRST_PAGE && s.page <= LAST_PAGE ? s.page : d.page,
-      part: pick(s.part, PARTS, d.part),
+    // Rounds and settings saved before several parts could be picked have one `part`.
+    const listed = Array.isArray(s.parts) ? s.parts : typeof s.part === 'string' ? [s.part] : d.parts;
+    const page = Number.isInteger(s.page) && s.page >= FIRST_PAGE && s.page <= LAST_PAGE ? s.page : d.page;
+    const clean = {
+      page,
+      // An empty list is allowed here; the setup screen asks for a part before starting.
+      parts: PARTS.filter((part) => listed.includes(part)),
       count: pick(s.count, COUNTS, d.count),
       focus: pick(s.focus, ['all', 'weak'], d.focus),
       engine: pick(s.engine, ENGINES, d.engine),
     };
+    // The last page a saved round used, when it went past its first.
+    if (Number.isInteger(s.to) && s.to >= FIRST_PAGE && s.to <= LAST_PAGE) clean.to = s.to;
+    return clean;
   }
 
   // History keys: one per word (sight word or word to sound out), sound or sentence.
@@ -351,49 +363,143 @@
     return list;
   }
 
+  // One page's items for one part, in the page's order.
+  function partItems(l, part) {
+    if (part === 'sounds') {
+      return l.sounds.map((t) => ({ kind: 'sound', text: t, key: keyOf('sound', t), sound: null, page: l.page, isNew: t.toLowerCase() === l.newSound }));
+    }
+    if (part === 'sentences') {
+      return l.sentences.map((t) => ({ kind: 'sentence', text: t, key: keyOf('sentence', t), sound: null, page: l.page, isNew: false }));
+    }
+    return [
+      ...l.words.map((w) => ({ kind: 'sight', text: w, key: keyOf('sight', w), sound: null, page: l.page, isNew: l.newWords.includes(w) })),
+      ...l.decodable.map((d) => ({ kind: 'word', text: d.word, key: keyOf('word', d.word), sound: d.sound, page: l.page, isNew: false })),
+    ];
+  }
+
+  // A sound's capital and small letter are both practiced, so they're different items (with one history).
+  const sameItem = (item) => (item.kind === 'sound' ? `t:${item.text}` : item.key);
+
+  /** How a round of `count` is shared out among the parts: evenly, with any extra going to words, then sounds. */
+  function shares(parts, count) {
+    const order = ['words', 'sounds', 'sentences'].filter((part) => parts.includes(part));
+    const out = {};
+    order.forEach((part, i) => { out[part] = Math.floor(count / order.length) + (i < count % order.length ? 1 : 0); });
+    return out;
+  }
+
   /**
-   * The items for one round from a page: { kind, text, shown, key, sound }.
-   * kind is 'sight' (a sight word), 'word' (a word to sound out), 'sound' or
-   * 'sentence'. Sentences come in the page's order. Otherwise the page's new
-   * sight words or new sound always come up, the rest are drawn at random
-   * (leaning on weak spots when focus is 'weak'; weightOf(key) says how much),
-   * nothing repeats, and sight words sometimes start with a capital, like in
-   * the packet.
+   * What a round starting at `page` draws on: for each part, the items to
+   * pick from (`pool`, each with its page) and how many to pick (`take`),
+   * plus every page used and the first and last of them. count 0 is the
+   * whole page: everything the page has for those parts, and nothing else.
    */
-  function createRound(l, options, weightOf = () => 1, random = Math.random) {
-    if (options.part === 'sentences') {
-      return l.sentences.map((text) => ({ kind: 'sentence', text, shown: text, key: keyOf('sentence', text), sound: null }));
-    }
-    let pool;
-    if (options.part === 'sounds') {
-      pool = l.sounds.map((token) => ({ kind: 'sound', text: token, key: keyOf('sound', token), sound: null, isNew: token.toLowerCase() === l.newSound }));
-    } else {
-      pool = [
-        ...l.words.map((w) => ({ kind: 'sight', text: w, key: keyOf('sight', w), sound: null, isNew: l.newWords.includes(w) })),
-        ...l.decodable.map((d) => ({ kind: 'word', text: d.word, key: keyOf('word', d.word), sound: d.sound, isNew: false })),
-      ];
-    }
-    const size = options.count > 0 ? Math.min(options.count, pool.length) : pool.length;
-    const picked = shuffled(pool.filter((p) => p.isNew), random).slice(0, size);
-    let rest = pool.filter((p) => !picked.includes(p)).map((p) => ({ p, weight: options.focus === 'weak' ? Math.max(0.01, weightOf(p.key)) : 1 }));
-    while (picked.length < size && rest.length) {
-      const total = rest.reduce((sum, r) => sum + r.weight, 0);
-      let roll = random() * total;
-      let choice = rest[rest.length - 1];
-      for (const r of rest) {
-        roll -= r.weight;
-        if (roll < 0) {
-          choice = r;
-          break;
+  function planRound(page, parts, count) {
+    const plan = { parts: {}, pages: [], from: page, to: page, total: 0 };
+    const want = count > 0 ? shares(parts, count) : null;
+    const order = [];
+    for (let p = page; p <= LAST_PAGE; p++) order.push(p);
+    for (let p = page - 1; p >= FIRST_PAGE; p--) order.push(p); // only when nothing's left after the page
+    const used = new Set();
+    for (const part of PARTS) {
+      if (!parts.includes(part)) continue;
+      const pool = [];
+      const seen = new Set();
+      for (const p of want ? order : [page]) {
+        const l = lesson(p);
+        if (!l) continue;
+        let added = false;
+        for (const item of partItems(l, part)) {
+          if (seen.has(sameItem(item))) continue;
+          seen.add(sameItem(item));
+          pool.push(item);
+          added = true;
         }
+        if (added) used.add(p);
+        if (want && pool.length >= want[part]) break;
       }
-      picked.push(choice.p);
-      rest = rest.filter((r) => r !== choice);
+      const take = want ? Math.min(want[part], pool.length) : pool.length;
+      plan.parts[part] = { pool, take };
+      plan.total += take;
     }
-    return shuffled(picked, random).map(({ isNew, ...item }) => ({
+    plan.pages = [...used].sort((x, y) => x - y);
+    if (plan.pages.length) {
+      plan.from = plan.pages[0];
+      plan.to = plan.pages[plan.pages.length - 1];
+    }
+    return plan;
+  }
+
+  // Picks `take` items from a pool, page by page in the pool's order. On a
+  // page with more than there's room for, its new items come first, then the
+  // rest at random (leaning on weak spots when focus is 'weak').
+  function pickFrom(pool, take, focus, weightOf, random) {
+    const pages = [];
+    for (const item of pool) {
+      if (!pages.length || pages[pages.length - 1][0].page !== item.page) pages.push([]);
+      pages[pages.length - 1].push(item);
+    }
+    const picked = [];
+    for (const items of pages) {
+      const room = take - picked.length;
+      if (room <= 0) break;
+      if (items.length <= room) {
+        picked.push(...items);
+        continue;
+      }
+      const fresh = shuffled(items.filter((i) => i.isNew), random).slice(0, room);
+      picked.push(...fresh);
+      let rest = items.filter((i) => !fresh.includes(i)).map((i) => ({ i, weight: focus === 'weak' ? Math.max(0.01, weightOf(i.key)) : 1 }));
+      while (picked.length < take && rest.length) {
+        const total = rest.reduce((sum, r) => sum + r.weight, 0);
+        let roll = random() * total;
+        let choice = rest[rest.length - 1];
+        for (const r of rest) {
+          roll -= r.weight;
+          if (roll < 0) {
+            choice = r;
+            break;
+          }
+        }
+        picked.push(choice.i);
+        rest = rest.filter((r) => r !== choice);
+      }
+    }
+    return picked;
+  }
+
+  /**
+   * The items for a round: { kind, text, shown, key, sound, page }. kind is
+   * 'sound', 'sight' (a sight word), 'word' (a word to sound out) or
+   * 'sentence'. They come in the packet's order: sounds, then words, then
+   * sentences. Sounds and words are mixed up within their part; sentences
+   * keep the packet's order. Nothing repeats, a page's new sight words and
+   * new sound always come up, and sight words sometimes start with a
+   * capital, like in the packet. options: { parts, count, focus }.
+   */
+  function createRound(page, options, weightOf = () => 1, random = Math.random) {
+    const plan = planRound(page, options.parts, options.count);
+    const items = [];
+    for (const part of PARTS) {
+      const p = plan.parts[part];
+      if (!p) continue;
+      // Sentences are read in the packet's order; sounds and words are mixed up.
+      items.push(...(part === 'sentences' ? p.pool.slice(0, p.take) : shuffled(pickFrom(p.pool, p.take, options.focus, weightOf, random), random)));
+    }
+    return items.map(({ isNew, ...item }) => ({
       ...item,
       shown: item.kind === 'sight' && item.text !== 'I' && random() < 0.25 ? item.text[0].toUpperCase() + item.text.slice(1) : item.text,
     }));
+  }
+
+  /** The words a recognizer should listen for, on all of these pages. */
+  function vocabularyOf(pages) {
+    const words = new Set();
+    for (const p of pages) {
+      const l = lesson(p);
+      if (l) for (const w of vocabulary(l)) words.add(w);
+    }
+    return [...words];
   }
 
   // ---------- what a reading history says ----------
@@ -533,8 +639,8 @@
   const Reading = {
     SIGHT_WORDS, PHONICS, SOUNDS_LIKE, wordsIn, heardIt, mark, speechCheckItems,
     FIRST_PAGE, LAST_PAGE, PARTS, COUNTS, ENGINES, DEFAULT_SETTINGS, LATELY,
-    checkWord, checkSentence, lesson, vocabulary, soundNote, sightForm, newSoundOn,
-    sanitizeSettings, keyOf, createRound, cleanRounds, levelOf, analyze, weightFinder, trickiest,
+    checkWord, checkSentence, lesson, vocabulary, vocabularyOf, soundNote, sightForm, newSoundOn,
+    sanitizeSettings, keyOf, shares, planRound, createRound, cleanRounds, levelOf, analyze, weightFinder, trickiest,
   };
 
   if (typeof module === 'object' && module.exports) module.exports = Reading;

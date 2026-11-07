@@ -36,10 +36,12 @@ Choose **Reading** under Practice. The words come from the class's phonics homew
 | Setting | Choices |
 | --- | --- |
 | Homework page | 4 to 143. The setup screen shows the page's newest sound and any sight words that are new on it, and a preview of what's on the page. |
-| Read | **Words**: the page's sight words, plus words to sound out taken from the page's sentences, with the newest sound they use marked (like the **sh** in ship). **Sounds**: the page's letters and sounds; your child says each sound and a grown-up taps ✓. **Sentences**: the page's sentences, in order. |
+| Read | Any of **Sounds** (the page's letters and sounds; your child says each one and a grown-up taps ✓), **Words** (the page's sight words, plus words to sound out taken from its sentences, with the newest sound they use marked, like the **sh** in ship) and **Sentences** (in the packet's order). All three to start with. A round goes through them in the packet's order: sounds, then words, then sentences. |
 | Focus | **Everything**, or **Weak spots** (words and sounds missed lately come up more often). Needs a named player with some reading history. |
-| How many | 10, 20, 30, or the whole page. New sight words and the newest sound always come up. |
 | Checking | **By voice, online** (Chrome sends the audio to Google), **By voice, on this device** (Vosk: a 41 MB download the first time, then it works offline and no audio leaves the device), or **A grown-up checks**. |
+| Per round | 10, 20 or 30, shared out among the parts picked, or the whole page. |
+
+A round always has the number picked, like math rounds. When the page runs out, it goes on to the next pages, so a round of 20 words that starts on a page with 8 takes the other 12 from the pages after it (near the end of the packet, from the pages before it instead). The preview on the setup screen shows which pages a round uses, and dashes the items from other pages. New sight words and the newest sound always come up. **Whole page** uses only that page.
 
 How a round goes:
 
@@ -129,14 +131,14 @@ A reading round is saved the same way, with different settings and answers:
 
 ```json
 {
-  "settings": { "operation": "read", "page": 20, "part": "words", "count": 10, "focus": "all", "engine": "online" },
+  "settings": { "operation": "read", "page": 20, "parts": ["sounds", "words", "sentences"], "count": 20, "focus": "all", "engine": "online", "to": 21 },
   "answers": [
     { "kind": "sight", "item": "green", "shown": "Green", "right": true, "how": "voice", "tries": 2, "helped": false, "ms": 2600, "heard": "grain" }
   ]
 }
 ```
 
-- `part` is `"words"`, `"sounds"` or `"sentences"`; `count` is `0` for the whole page; `engine` is `"online"`, `"vosk"` or `"off"` (a grown-up checks).
+- `parts` lists `"sounds"`, `"words"` and `"sentences"` (rounds saved before several could be picked have one `part`). `page` is where the round started, and `to` is the last page it used, when it went past the first. `count` is `0` for the whole page. `engine` is `"online"`, `"vosk"` or `"off"` (a grown-up checks).
 - `kind` is `"sight"` (a sight word), `"word"` (a word to sound out), `"sound"` or `"sentence"`, and `shown` is how it looked (sight words sometimes start with a capital, like in the packet).
 - `how` is `"voice"`, `"grown-up"` (tapped ✓) or `"skip"` (Not yet). `right` is false after Not yet, or when it was read after Hear it (`helped`).
 - `tries` counts the times it was read, including misreads. `heard` is what the recognizer heard the last time it heard something else.

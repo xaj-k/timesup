@@ -149,6 +149,8 @@
         bestStreak: 0,
         byVoice: 0,
         answers: [],
+        // "Word 3 of 10" when they're all one kind; just "3 of 10" in a mixed round.
+        oneKind: options.items.every((item) => COUNTED[item.kind] === COUNTED[options.items[0].kind]),
         session: null,
         relisten: 0,
         advance: 0,
@@ -176,7 +178,7 @@
         return;
       }
       Object.assign(item, { misses: 0, listens: 0, helped: false, heard: '', done: false, shownAt: performance.now() });
-      $('read-progress').textContent = `${COUNTED[item.kind]} ${round.index + 1} of ${round.items.length}`;
+      $('read-progress').textContent = `${round.oneKind ? `${COUNTED[item.kind]} ` : ''}${round.index + 1} of ${round.items.length}`;
       $('read-kind').textContent = KIND_NAMES[item.kind];
       renderItem(item);
       markCell('is-current');
