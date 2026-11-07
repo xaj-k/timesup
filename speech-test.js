@@ -12,7 +12,7 @@
   const Recognition = Listen.BrowserRecognition;
   const vosk = Listen.vosk;
   const meter = Listen.meter;
-  const PAGE_VERSION = 4; // in the results, so it's clear which page made them
+  const PAGE_VERSION = 5; // in the results, so it's clear which page made them
   const PAUSE_AFTER_RIGHT = 900; // ms before the next word
   const LISTEN_LIMIT = 8000; // ms; stop listening after this if the browser hasn't
   const READY_LIMIT = 1500; // ms; show the word by then, even if the browser never says the mic is on
@@ -126,11 +126,13 @@
           : `Downloading English for Vosk: ${mb(step.loaded)} MB. This only happens the first time.`;
       } else if (step.phase === 'unpack') {
         voskNote = 'Unpacking English…';
+      } else if (step.phase === 'speed') {
+        voskNote = 'Checking how fast this device is…';
       }
       renderEngine();
     }).then(
       () => {
-        voskNote = 'Ready. Vosk only listens for the packet’s words, and no audio leaves this device.';
+        voskNote = 'Ready. Vosk only listens for the packet’s words, and no audio leaves this device. ' + speedText();
         renderEngine();
       },
       () => {
@@ -139,6 +141,13 @@
       }
     );
     renderEngine();
+  }
+
+  // How fast Vosk is here, in words.
+  function speedText() {
+    if (vosk.speed === null) return 'It couldn’t tell how fast this device is.';
+    const took = `It takes ${vosk.speed.toFixed(1)} s to recognize 1 s of speech here`;
+    return vosk.speed <= 1 ? `${took}, fast enough to keep up.` : `${took}, too slow to keep up, so answers may come late or not at all.`;
   }
 
   function renderEngine() {
@@ -390,6 +399,7 @@
         attempt.fromPartial = true;
         attempt.match = attempt.last.text;
       }
+      if (rec.sentMs !== undefined) Object.assign(attempt, { sentMs: rec.sentMs, lagMs: rec.maxLagMs });
       result.tries.push(attempt);
       const at = index;
       const silent = !attempt.heard.length;
@@ -551,7 +561,7 @@
   // ---------- results ----------
 
   function engineText(name) {
-    if (name === 'vosk') return `by Vosk on this device (${vosk.info.name})`;
+    if (name === 'vosk') return `by Vosk on this device (${vosk.info.name}${vosk.speed === null ? '' : `, ${vosk.speed.toFixed(2)} s to recognize 1 s of audio`})`;
     return name === 'device' ? 'by Chrome on this device' : 'by Google (online)';
   }
 
@@ -576,6 +586,8 @@
     const partial = t.hit || t.last;
     if (partial) notes.push(`partial "${partial.text}" ${seconds(partial.ms)}`);
     if (typeof t.unknown === 'number' && t.unknown > 0) notes.push(`${t.unknown} other ${t.unknown === 1 ? 'word' : 'words'}`);
+    if (typeof t.sentMs === 'number') notes.push(`heard ${seconds(t.sentMs)}`);
+    if (typeof t.lagMs === 'number' && t.lagMs >= 300) notes.push(`behind ${seconds(t.lagMs)}`);
     if (typeof t.peak === 'number') notes.push(`loudest ${dB(t.peak)}`);
     return `${outcome}, ${seconds(t.ms)}${notes.length ? ` [${notes.join(', ')}]` : ''}`;
   }
@@ -615,6 +627,16 @@
     return `Partial results: ${parts.join('; ')}.`;
   }
 
+  // How much audio Vosk was given, and how far behind its answers were.
+  function voskText() {
+    const tries = results.flatMap((r) => r.tries).filter((t) => typeof t.sentMs === 'number');
+    if (!tries.length) return 'Vosk: no tries.';
+    const lags = tries.map((t) => t.lagMs).sort((a, b) => a - b);
+    const heard = tries.reduce((sum, t) => sum + t.sentMs, 0);
+    return `Vosk: heard ${seconds(heard)} of audio in ${tries.length} tries (only when there was sound); `
+      + `answers were typically ${seconds(lags[Math.floor((lags.length - 1) / 2)])} behind, at most ${seconds(lags[lags.length - 1])}.`;
+  }
+
   function micLevelText() {
     const before = micCheck ? `checked before starting: loudest ${dB(micCheck.loudest)}, room ${dB(micCheck.floor)}` : 'not checked before starting';
     return `Mic level: ${before}; ${liveRun ? 'shown while listening' : 'not shown while listening'}.`;
@@ -631,6 +653,7 @@
       micText(),
       micLevelText(),
       partialText(),
+      ...(runEngine === 'vosk' ? [voskText()] : []),
       '',
     ];
     for (const r of results) {

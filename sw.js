@@ -10,7 +10,7 @@
  * part of every install. Its code is kept the first time it's used, in its
  * own cache (VOSK_CACHE), and Vosk keeps its model in IndexedDB itself.
  */
-const VERSION = '2026-11-06.1';
+const VERSION = '2026-11-06.2';
 const CACHE = `timesup-${VERSION}`;
 const VOSK_CACHE = 'vosk-0.0.8-times-up-1'; // change it if vendor/vosk/vosk.js ever changes
 const FILES = [

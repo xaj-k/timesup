@@ -468,6 +468,8 @@
         voskNote = `Downloading English: ${mb(step.loaded)} of ${mb(step.total || Listen.vosk.info.megabytes * 1e6)} MB. This only happens the first time.`;
       } else if (step.phase === 'unpack') {
         voskNote = 'Unpacking English…';
+      } else if (step.phase === 'speed') {
+        voskNote = 'Checking how fast this device is…';
       }
       update();
     }).then(update, update);
@@ -511,7 +513,12 @@
     const vosk = Listen.vosk;
     if (reading.engine === 'vosk') {
       if (!vosk.supported) return 'This browser can’t check on the device. Choose another way.';
-      if (vosk.state === 'ready') return 'Ready. Checking happens on this device, so no audio leaves it.';
+      if (vosk.state === 'ready') {
+        if (vosk.speed !== null && vosk.speed > 1) {
+          return `Ready, but slow here: this device takes ${vosk.speed.toFixed(1)} s to recognize 1 s of speech, so answers may come late. By voice, online may work better on it.`;
+        }
+        return 'Ready. Checking happens on this device, so no audio leaves it.';
+      }
       if (vosk.state === 'failed') return `Checking on this device couldn’t load (${vosk.error}).`;
       if (vosk.state === 'loading') return voskNote;
       return `The first time, this downloads ${vosk.info.megabytes} MB. After that it works offline, and no audio leaves the device.`;

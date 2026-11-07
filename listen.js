@@ -184,16 +184,24 @@
     megabytes: 41,
   };
   const SOUND_OVER_FLOOR = 12; // dB over the room's background that counts as someone talking
+  const GATE_OVER_FLOOR = 8; // dB over the background that's worth sending to Vosk (a little below talking)
   const SOUND_MIN = -60; // dB; quieter than this is never talking
   const QUIET_AFTER = 600; // ms of quiet before a sound counts as over
-  const STOP_WAIT = 1500; // ms to wait for the last result after stop()
+  // Vosk only hears the stretches with sound in them, so a slow device keeps up:
+  const PREROLL_MS = 600; // audio kept from just before a sound, so its start isn't lost
+  const TAIL_MS = 1200; // quiet audio still sent after a sound, so Vosk can tell a word has ended
+  const VOSK_RATE = 16000; // Vosk's own sample rate; the browser converts the mic to it
+  const STOP_WAIT = 1500; // ms to wait for the last result after stop(), plus however far behind Vosk is
+  const STOP_WAIT_MAX = 10000;
   const LOAD_STALL = 180000; // ms without any news from the loading model before giving up
+  const SPEED_SECONDS = 2; // seconds of audio in the speed check
 
   const vosk = {
     supported: Boolean(global.WebAssembly && global.Worker && AudioCtx && navigator.mediaDevices && navigator.mediaDevices.getUserMedia),
     state: 'idle', // idle, loading, ready or failed
     error: '',
     model: null,
+    speed: null, // seconds it takes to recognize one second of audio here; under 1 keeps up
     audio: null, // the open microphone: { stream, context, source, node, rate, floor }
     active: null, // the recognition listening now
     loading: null,
@@ -221,7 +229,7 @@
   /**
    * Loads Vosk and its English model, once. progress({ phase, loaded, total })
    * says how it's going: 'code' (vosk.js), 'model' (downloading, the first
-   * time only), then 'unpack'.
+   * time only), 'unpack', then 'speed' (timing how fast this device is).
    */
   function loadVosk(progress = () => {}) {
     if (vosk.loading) return vosk.loading;
@@ -262,6 +270,8 @@
         throw error;
       }
       vosk.model = model;
+      progress({ phase: 'speed' });
+      vosk.speed = await measureSpeed(model);
       vosk.state = 'ready';
     })().catch((error) => {
       vosk.state = 'failed';
@@ -272,6 +282,50 @@
     return vosk.loading;
   }
 
+  /**
+   * How many seconds Vosk takes here to recognize one second of audio: it's
+   * given a couple of seconds of quiet room noise as fast as it will take it.
+   * Under 1, it keeps up with someone talking. null if it couldn't tell.
+   */
+  function measureSpeed(model) {
+    const chunk = 2048;
+    const total = Math.ceil((VOSK_RATE * SPEED_SECONDS) / chunk);
+    return new Promise((resolve) => {
+      let rec;
+      let answered = 0;
+      let timer = 0;
+      const finish = (value) => {
+        clearTimeout(timer);
+        try {
+          rec.remove();
+        } catch (error) {
+          // Already gone.
+        }
+        resolve(value);
+      };
+      try {
+        rec = new model.KaldiRecognizer(VOSK_RATE, JSON.stringify(['the', '[unk]']));
+      } catch (error) {
+        resolve(null);
+        return;
+      }
+      const started = performance.now();
+      timer = setTimeout(() => finish(null), 60000);
+      const count = () => {
+        answered += 1;
+        if (answered === total) finish((performance.now() - started) / 1000 / ((total * chunk) / VOSK_RATE));
+      };
+      rec.on('partialresult', count);
+      rec.on('result', count);
+      rec.on('error', () => finish(null));
+      for (let i = 0; i < total; i++) {
+        const data = new Float32Array(chunk);
+        for (let j = 0; j < chunk; j++) data[j] = (Math.random() - 0.5) * 0.004;
+        rec.acceptWaveformFloat(data, VOSK_RATE);
+      }
+    });
+  }
+
   /** Opens the microphone for Vosk, and shows its level on the bar. Call it from a tap. */
   async function openVosk() {
     if (vosk.audio) return true;
@@ -279,18 +333,32 @@
       vosk.error = 'not-supported';
       return false;
     }
+    // At Vosk's own rate (less audio to pass along, and nothing for Vosk to convert), where the browser can.
     let context;
     try {
-      context = new AudioCtx(); // made right away, while the tap still lets it run
+      context = new AudioCtx({ sampleRate: VOSK_RATE }); // made right away, while the tap still lets it run
     } catch (error) {
-      vosk.error = 'audio';
-      return false;
+      try {
+        context = new AudioCtx();
+      } catch (again) {
+        vosk.error = 'audio';
+        return false;
+      }
     }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
       if (context.state === 'suspended') await context.resume().catch(() => {});
-      const source = context.createMediaStreamSource(stream);
-      const node = context.createScriptProcessor(4096, 1, 1);
+      let source;
+      try {
+        source = context.createMediaStreamSource(stream);
+      } catch (error) {
+        // Some browsers (Firefox) can't take the mic at another rate.
+        context.close().catch(() => {});
+        context = new AudioCtx();
+        if (context.state === 'suspended') await context.resume().catch(() => {});
+        source = context.createMediaStreamSource(stream);
+      }
+      const node = context.createScriptProcessor(context.sampleRate <= VOSK_RATE ? 2048 : 4096, 1, 1);
       node.onaudioprocess = (event) => hearChunk(event.inputBuffer.getChannelData(0));
       source.connect(node);
       node.connect(context.destination); // a script processor only runs while it's connected; it plays silence
@@ -322,17 +390,18 @@
     audio.context.close().catch(() => {});
   }
 
-  // Each chunk of microphone audio (about 85 ms) goes to whichever recognition is listening.
+  // Each chunk of microphone audio (about a tenth of a second) goes to whichever recognition is listening.
   function hearChunk(data) {
     const audio = vosk.audio;
     if (!audio) return;
     let sum = 0;
     for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
     const db = Math.max(-100, 10 * Math.log10(sum / data.length || 1e-10));
-    // The room's background: drops to any quieter moment and creeps back up about 3 dB a second.
+    // The room's background: drops to any quieter moment and creeps back up a couple of dB a second.
     audio.floor = audio.floor === null ? db : Math.min(db, audio.floor + 0.25);
     const loud = db > SOUND_MIN && db > audio.floor + SOUND_OVER_FLOOR;
-    if (vosk.active) vosk.active.hear(data, audio.rate, loud, (data.length / audio.rate) * 1000);
+    const worth = db > SOUND_MIN && db > audio.floor + GATE_OVER_FLOOR;
+    if (vosk.active) vosk.active.hear(data, audio.rate, loud, worth, (data.length / audio.rate) * 1000);
   }
 
   // The words a recognition listens for, lowercase, plus "[unk]" for anything else.
@@ -355,6 +424,11 @@
    * results, then one final result), nomatch (it only heard other words),
    * error, and end. Each final alternative also has `unknown`: how many
    * other words it heard.
+   *
+   * It only passes Vosk the stretches of audio with sound in them (plus a
+   * moment before and after), so a slow device doesn't fall behind during
+   * silence. sentMs is how much audio it passed on; lagMs and maxLagMs say
+   * how far behind Vosk's answers were.
    */
   class VoskRecognition {
     constructor(words) {
@@ -370,6 +444,14 @@
       this.lastPartial = '';
       this.stopping = false;
       this.stopTimer = 0;
+      this.preroll = []; // recent quiet audio, kept in case talking starts
+      this.prerollMs = 0;
+      this.gate = false; // whether audio is going to Vosk
+      this.gateQuietMs = 0;
+      this.pending = []; // audio sent that Vosk hasn't answered yet: { at, ms }
+      this.sentMs = 0;
+      this.lagMs = 0;
+      this.maxLagMs = 0;
       for (const type of ['audiostart', 'soundstart', 'soundend', 'speechstart', 'speechend', 'result', 'nomatch', 'error', 'end']) this[`on${type}`] = null;
     }
 
@@ -393,8 +475,14 @@
       vosk.active = this;
       this.rec = new vosk.model.KaldiRecognizer(vosk.audio.rate, JSON.stringify(this.grammar));
       this.rec.setWords(true);
-      this.rec.on('result', (message) => this.gotResult(message.result));
-      this.rec.on('partialresult', (message) => this.gotPartial(message.result && message.result.partial));
+      this.rec.on('result', (message) => {
+        this.answered();
+        this.gotResult(message.result);
+      });
+      this.rec.on('partialresult', (message) => {
+        this.answered();
+        this.gotPartial(message.result && message.result.partial);
+      });
       this.rec.on('error', (message) => {
         if (this.state !== 'live') return;
         this.emit('error', { error: 'recognizer', message: message.error });
@@ -406,9 +494,26 @@
       }, 0);
     }
 
-    hear(data, rate, loud, ms) {
+    hear(data, rate, loud, worth, ms) {
       if (this.state !== 'live' || this.stopping) return;
-      this.rec.acceptWaveformFloat(data, rate);
+      if (loud || worth) {
+        this.gateQuietMs = 0;
+        if (!this.gate) {
+          this.gate = true;
+          for (const kept of this.preroll) this.send(kept.data, rate, kept.ms);
+          this.preroll = [];
+          this.prerollMs = 0;
+        }
+        this.send(data, rate, ms);
+      } else if (this.gate) {
+        this.send(data, rate, ms);
+        this.gateQuietMs += ms;
+        if (this.gateQuietMs >= TAIL_MS) this.gate = false;
+      } else {
+        this.preroll.push({ data: data.slice(), ms });
+        this.prerollMs += ms;
+        while (this.prerollMs > PREROLL_MS && this.preroll.length > 1) this.prerollMs -= this.preroll.shift().ms;
+      }
       if (loud) {
         this.quietMs = 0;
         if (!this.sound) {
@@ -422,6 +527,20 @@
           this.emit('soundend');
         }
       }
+    }
+
+    send(data, rate, ms) {
+      this.rec.acceptWaveformFloat(data, rate);
+      this.pending.push({ at: performance.now(), ms });
+      this.sentMs += ms;
+    }
+
+    // Vosk answers every piece of audio, in order; how long that took is how far behind it is.
+    answered() {
+      const sent = this.pending.shift();
+      if (!sent) return;
+      this.lagMs = performance.now() - sent.at;
+      this.maxLagMs = Math.max(this.maxLagMs, this.lagMs);
     }
 
     gotPartial(partial) {
@@ -445,10 +564,10 @@
       } else if (said.length) {
         this.emit('nomatch'); // it heard talking, but none of the words it listens for
         this.end();
-      } else if (this.stopping) {
-        this.end();
+      } else if (this.stopping && !this.pending.length) {
+        this.end(); // the last answer, with nothing in it
       }
-      // Otherwise it was only silence: keep listening.
+      // Otherwise it was only a pause, and there may be more audio to go: keep listening.
     }
 
     stop() {
@@ -460,7 +579,9 @@
         this.end();
         return;
       }
-      this.stopTimer = setTimeout(() => this.end(), STOP_WAIT);
+      // Give Vosk time to catch up on the audio it hasn't answered yet.
+      const behind = this.pending.reduce((sum, p) => sum + p.ms, 0) * (vosk.speed || 1);
+      this.stopTimer = setTimeout(() => this.end(), Math.min(STOP_WAIT_MAX, STOP_WAIT + behind));
     }
 
     abort() {

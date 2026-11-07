@@ -180,6 +180,8 @@ The first screen picks how speech is recognized:
 - **Chrome, on this device**: offered when newer Chrome can recognize speech itself.
 - **Vosk, on this device**: [Vosk](https://alphacephei.com/vosk/) runs inside the page, so no audio leaves the device. It listens only for the packet's words, plus "anything else". The first time, it downloads 41 MB (its code and a small English model, in `vendor/vosk`), and the page shows how far along that is. After that the browser keeps it. Vosk also works in browsers that can't recognize speech themselves, like Firefox. With Vosk the level bar shows while listening on Android too, because Vosk and the bar share one hold on the mic.
 
+Vosk does all its work on the device, so its speed depends on the device. Once it's ready, the page times it on two seconds of audio and says how long it takes to recognize one second of speech. Under one second, it keeps up. It's only given the stretches of audio with sound in them (plus a moment before and after), so a slower device has less to catch up on. The results say how much audio Vosk heard and how far behind its answers were. Reading practice's setup screen also says when a device is too slow for it.
+
 On Android older than 13, the page notes that reading practice is meant for Android 13 or newer.
 
 Words that sound the same count as right: "two" heard as "to" or "2" is fine, and so is "a" heard as "hey".
