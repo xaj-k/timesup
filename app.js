@@ -351,7 +351,7 @@
     $('read-fields').hidden = !reads;
     $('math-preview').hidden = reads;
     $('read-preview').hidden = !reads;
-    $('chart-label').textContent = reads ? 'On this page' : 'In this quiz';
+    $('chart-label').textContent = reads ? 'In this round' : 'In this quiz';
     if (reads) renderReadSetup();
     else renderMathSetup();
     renderSetupState();
