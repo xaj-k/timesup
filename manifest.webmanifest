@@ -1,7 +1,7 @@
 {
   "name": "Times Up! Math facts and reading practice",
   "short_name": "Times Up",
-  "description": "Practice for kids: multiplication and addition facts, with or without a timer, and reading the class's phonics homework out loud.",
+  "description": "Practice for kids: multiplication, addition, subtraction and division facts, with or without a timer, and reading the class's phonics homework out loud.",
   "lang": "en",
   "start_url": "./",
   "scope": "./",

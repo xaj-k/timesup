@@ -1,11 +1,14 @@
 /*
  * Times Up: what a player's history says. Which facts they know by heart,
  * which ones trip them up (and how), how they're doing over time, and what
- * to practice next. Multiplication and addition are looked at separately.
- * There's no page code in here, so the tests run it too.
+ * to practice next. Each operation (multiplication, addition, subtraction
+ * and division) is looked at separately. There's no page code in here, so
+ * the tests run it too.
  *
  * Each fact gets a level from its latest tries, in either order (6 × 8 and
- * 8 × 6 are one fact, and so are 6 + 8 and 8 + 6):
+ * 8 × 6 are one fact, and so are 6 + 8 and 8 + 6). Subtraction and division
+ * keep their order: 48 ÷ 6 and 48 ÷ 8 are two facts, and so are 14 − 6 and
+ * 14 − 8. The levels:
  *   mastered   Got it          the last 3 tries were right, typically within 4 seconds
  *   learning   Getting there   right lately, but not 3 in a row yet, or slower than that
  *   practice   Needs practice  the last try was wrong, or fewer than half of the last 4 were right
@@ -65,8 +68,19 @@
     return Number.isInteger(v) && v >= Quiz.RANGE_MIN && v <= Quiz.RANGE_MAX;
   }
 
+  // Whether the quiz could have asked a question with these numbers.
+  // Multiplying and adding: both numbers 0 to 12. Taking away and dividing:
+  // b is one of the numbers that can be picked (1 to 12), and the answer is
+  // a whole number from 0 to 12.
+  function couldAsk(a, b, operation) {
+    if (!Number.isInteger(a) || !Number.isInteger(b)) return false;
+    if (operation === 'subtract') return Quiz.TABLES.includes(b) && whole(a - b);
+    if (operation === 'divide') return Quiz.TABLES.includes(b) && a % b === 0 && whole(a / b);
+    return whole(a) && whole(b);
+  }
+
   function cleanAnswer(raw, operation) {
-    if (!raw || typeof raw !== 'object' || !whole(raw.a) || !whole(raw.b)) return null;
+    if (!raw || typeof raw !== 'object' || !couldAsk(raw.a, raw.b, operation)) return null;
     const answer = Quiz.answerFor(raw.a, raw.b, operation);
     const picked = Number.isInteger(raw.picked) ? raw.picked : null; // null: time ran out
     const ms = Number.isFinite(raw.ms) && raw.ms >= 0 ? raw.ms : null;
@@ -81,7 +95,7 @@
       const s = r.settings && typeof r.settings === 'object' ? r.settings : {};
       if (s.operation === 'read') continue; // reading rounds have their own report (reading.js)
       // Rounds saved before addition existed are multiplication.
-      const operation = s.operation === 'add' ? 'add' : 'multiply';
+      const operation = Quiz.OPERATION_OPTIONS.includes(s.operation) ? s.operation : 'multiply';
       const answers = (Array.isArray(r.answers) ? r.answers : []).map((x) => cleanAnswer(x, operation)).filter(Boolean);
       if (!Number.isFinite(at) || !answers.length) continue;
       rounds.push({
@@ -163,14 +177,16 @@
     };
   }
 
-  // A table's facts are the ones with that number on either side; its accuracy
-  // comes from each fact's latest tries.
-  function tableStats(facts) {
+  // A table's facts are the ones with that number on either side, or for
+  // subtraction and division, the ones that take that number away or divide
+  // by it (b). Its accuracy comes from each fact's latest tries.
+  function tableStats(facts, operation) {
+    const eitherSide = Quiz.operationOf(operation).eitherOrder;
     const tables = [];
     for (let table = 1; table <= Quiz.RANGE_MAX; table++) {
       const row = { table, tried: 0, mastered: 0, practice: 0, recentCount: 0, recentRight: 0, accuracy: null };
       for (const f of facts.values()) {
-        if (f.a !== table && f.b !== table) continue;
+        if (eitherSide ? f.a !== table && f.b !== table : f.b !== table) continue;
         row.tried += 1;
         row.recentCount += f.recentCount;
         row.recentRight += f.recentRight;
@@ -205,7 +221,7 @@
     return counts;
   }
 
-  /** Totals across all of a player's rounds, both operations, and which operations they've played. */
+  /** Totals across all of a player's math rounds, every operation, and which operations they've played. */
   function overall(rawRounds) {
     const rounds = cleanRounds(rawRounds);
     const answers = rounds.flatMap((r) => r.answers);
@@ -220,15 +236,20 @@
   /**
    * Everything the progress report and weak-spots rounds need, from a
    * player's saved rounds (any order; bad records are skipped), for one
-   * operation: 'multiply' or 'add'.
+   * operation: 'multiply', 'add', 'subtract' or 'divide'.
    */
   function analyze(rawRounds, now = Date.now(), operation = 'multiply') {
     const rounds = cleanRounds(rawRounds).filter((r) => r.operation === operation);
+    const eitherOrder = Quiz.operationOf(operation).eitherOrder;
     const facts = new Map();
     rounds.forEach((round, index) => {
       for (const x of round.answers) {
         const key = Quiz.factKey(x.a, x.b, operation);
-        if (!facts.has(key)) facts.set(key, { key, operation, a: Math.min(x.a, x.b), b: Math.max(x.a, x.b), answer: x.answer, tries: [] });
+        if (!facts.has(key)) {
+          // 6 × 8 is kept with the smaller number first; 48 ÷ 6 as it was shown.
+          const [a, b] = eitherOrder ? [Math.min(x.a, x.b), Math.max(x.a, x.b)] : [x.a, x.b];
+          facts.set(key, { key, operation, a, b, answer: x.answer, tries: [] });
+        }
         facts.get(key).tries.push({ right: x.right, ms: x.ms, picked: x.picked, at: round.at, round: index });
       }
     });
@@ -249,7 +270,7 @@
       rounds,
       facts,
       levels: countLevels(facts.values()),
-      tables: tableStats(facts),
+      tables: tableStats(facts, operation),
       totals: {
         ...summarizeAnswers(rounds.flatMap((r) => r.answers)),
         rounds: rounds.length,
@@ -292,19 +313,26 @@
     return isShaky(fact) ? 'shaky' : fact.level;
   }
 
+  // The history of the fact [t, m] from the setup screen (see Quiz.questionFor), or null.
+  function factOf(analysis, t, m) {
+    if (!analysis) return null;
+    const { a, b } = Quiz.questionFor(t, m, analysis.operation);
+    return analysis.facts.get(Quiz.factKey(a, b, analysis.operation)) || null;
+  }
+
   /** How strongly a weak-spots round leans on each fact; see Quiz.createFocusRound. */
   function needFinder(analysis) {
-    return function needOf(a, b) {
-      const fact = analysis ? analysis.facts.get(Quiz.factKey(a, b, analysis.operation)) : null;
+    return function needOf(t, m) {
+      const fact = factOf(analysis, t, m);
       return { ...FOCUS[focusKind(fact)], slips: fact && fact.slip ? [fact.slip.value] : [] };
     };
   }
 
-  /** How many of these [a, b] facts are at each level. */
+  /** How many of these [t, m] facts are at each level. */
   function focusCounts(analysis, facts) {
     const counts = { mastered: 0, learning: 0, practice: 0, new: 0 };
-    for (const [a, b] of facts) {
-      const fact = analysis ? analysis.facts.get(Quiz.factKey(a, b, analysis.operation)) : null;
+    for (const [t, m] of facts) {
+      const fact = factOf(analysis, t, m);
       counts[fact ? fact.level : 'new'] += 1;
     }
     return counts;
@@ -312,11 +340,13 @@
 
   // ---------- wrong answers, in words ----------
 
-  /** What kind of slip a wrong answer to a × b (or a + b) is. */
+  /** What kind of slip a wrong answer to a question is. */
   function slipKind(a, b, picked, operation = 'multiply') {
     const answer = Quiz.answerFor(a, b, operation);
     const gap = picked - answer;
-    if (operation === 'add') {
+    // Dividing: the number you divide by, like 9 for 27 ÷ 9.
+    if (operation === 'divide' && picked === b && picked !== answer) return { kind: 'divisor' };
+    if (operation === 'add' || operation === 'subtract' || operation === 'divide') {
       if (Math.abs(gap) === 10) return { kind: 'ten', more: gap > 0 };
       return { kind: 'close', by: Math.abs(gap), more: gap > 0 };
     }
@@ -338,9 +368,10 @@
     return { kind: 'close', by: Math.abs(gap), more: gap > 0 };
   }
 
-  /** A short note on a wrong answer, like "63, which is 7 × 9" or "16, 1 too many". */
+  /** A short note on a wrong answer, like "63, which is 7 × 9", "16, 1 too many" or "9, the number you divide by". */
   function slipText(a, b, picked, operation = 'multiply') {
     const slip = slipKind(a, b, picked, operation);
+    if (slip.kind === 'divisor') return `${picked}, the number you divide by`;
     if (slip.kind === 'neighbour' || slip.kind === 'other') return `${picked}, which is ${slip.a} × ${slip.b}`;
     if (slip.kind === 'swap') return `${picked}, the digits swapped`;
     if (slip.kind === 'ten') return `${picked}, ten ${slip.more ? 'too many' : 'too few'}`;
@@ -364,6 +395,14 @@
       if (b - a === 1) return `${start} Doubles can help: ${a} + ${a} = ${a + a}, so ${a} + ${b} is one more: ${answer}.`;
       if (b === 9 && a >= 2) return `${start} Make a ten: ${a} + 9 is the same as ${a - 1} + 10, which is ${answer}.`;
       return `${start} The answer is ${answer}, ${Math.abs(picked - answer)} ${picked > answer ? 'less' : 'more'}.`;
+    }
+    // Taking away and dividing are easier from the fact they undo.
+    if (operation === 'subtract') {
+      return `${start} Think addition: ${a} − ${b} asks what to add to ${b} to make ${a}, and ${b} + ${answer} = ${a}.`;
+    }
+    if (operation === 'divide') {
+      const divisor = slipKind(a, b, picked, operation).kind === 'divisor' ? " That's the number you divide by." : '';
+      return `${start}${divisor} Think multiplication: ${a} ÷ ${b} asks what to multiply ${b} by to make ${a}, and ${b} × ${answer} = ${a}.`;
     }
     const slip = slipKind(a, b, picked);
     if (slip.kind === 'neighbour') {
@@ -403,6 +442,8 @@
     const tips = [];
     const { facts, lately, levels } = analysis;
     const adding = analysis.operation === 'add';
+    // Subtraction and division name a number by what's done with it: "taking away 7", "dividing by 7".
+    const doing = { subtract: 'taking away', divide: 'dividing by' }[analysis.operation] || '';
     const symbol = Quiz.operationOf(analysis.operation).symbol;
     if (!analysis.totals.questions) return tips;
 
@@ -431,6 +472,9 @@
       if (adding) {
         tips.push(`Facts with ${weakTables.map((t) => aNumber(t.table)).join(' or ')} are the trickiest lately ${shares}. ` +
           'A few rounds of just those can help.');
+      } else if (doing) {
+        tips.push(`${doing[0].toUpperCase()}${doing.slice(1)} ${weakTables.map((t) => t.table).join(' or ')} is the trickiest lately ${shares}. ` +
+          `A few rounds of ${doing} just ${listOf(weakTables.map((t) => String(t.table)))} can help.`);
       } else {
         tips.push(`The ${listOf(weakTables.map((t) => `${t.table}s`))} are the trickiest ${many ? 'tables' : 'table'} lately ${shares}. ` +
           `A few rounds of just ${many ? 'those' : 'that one'} can help.`);
@@ -465,16 +509,19 @@
       const highest = Math.max(...analysis.tables.filter((t) => t.tried > 0).map((t) => t.table));
       const next = analysis.tables.filter((t) => t.table > highest).slice(0, 2).map((t) => t.table);
       if (next.length) {
-        tips.push(`${name} knows most of the facts practiced so far by heart. Ready for something new: ` +
-          (adding ? `add ${listOf(next.map(String))} to the numbers.` : `add the ${listOf(next.map((t) => `${t}s`))}.`));
+        let more = `add the ${listOf(next.map((t) => `${t}s`))}.`;
+        if (adding) more = `add ${listOf(next.map(String))} to the numbers.`;
+        else if (doing) more = `try ${doing} ${listOf(next.map(String))} too.`;
+        tips.push(`${name} knows most of the facts practiced so far by heart. Ready for something new: ${more}`);
       }
     }
 
     const strong = strongTables(analysis);
     if (strong.length) {
-      tips.push(adding
-        ? `Strong on facts with ${listOf(strong.map(String))}: nearly every one known by heart.`
-        : `Strong on the ${listOf(strong.map((t) => `${t}s`))}: nearly every fact known by heart.`);
+      let text = `Strong on the ${listOf(strong.map((t) => `${t}s`))}: nearly every fact known by heart.`;
+      if (adding) text = `Strong on facts with ${listOf(strong.map(String))}: nearly every one known by heart.`;
+      else if (doing) text = `Strong on ${doing} ${listOf(strong.map(String))}: nearly every fact known by heart.`;
+      tips.push(text);
     }
 
     if (!tips.length) tips.push('Keep it up! A few short rounds a week keep the facts fresh.');

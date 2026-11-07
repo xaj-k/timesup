@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Times Up</title>
-  <meta name="description" content="Practice for kids: multiplication and addition facts, with or without a timer, and reading the class's phonics homework out loud.">
+  <meta name="description" content="Practice for kids: multiplication, addition, subtraction and division facts, with or without a timer, and reading the class's phonics homework out loud.">
   <!-- Installing on a phone or tablet: see manifest.webmanifest, sw.js and pwa.js -->
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#f3f6fb" media="(prefers-color-scheme: light)">
@@ -58,6 +58,8 @@
             <div class="pills">
               <label class="pill"><input type="radio" name="operation" value="multiply" id="operation-multiply"><span><b class="op-sign" aria-hidden="true">×</b>Multiplication</span></label>
               <label class="pill"><input type="radio" name="operation" value="add" id="operation-add"><span><b class="op-sign" aria-hidden="true">+</b>Addition</span></label>
+              <label class="pill"><input type="radio" name="operation" value="subtract" id="operation-subtract"><span><b class="op-sign" aria-hidden="true">−</b>Subtraction</span></label>
+              <label class="pill"><input type="radio" name="operation" value="divide" id="operation-divide"><span><b class="op-sign" aria-hidden="true">÷</b>Division</span></label>
               <label class="pill"><input type="radio" name="operation" value="read" id="operation-read"><span><b class="op-sign" aria-hidden="true">Aa</b>Reading</span></label>
             </div>
           </div>
@@ -323,6 +325,8 @@
       <div class="pills report-ops" id="report-ops" role="radiogroup" aria-label="Which facts to show" hidden>
         <label class="pill"><input type="radio" name="report-op" value="multiply" id="report-op-multiply"><span><b class="op-sign" aria-hidden="true">×</b>Multiplication</span></label>
         <label class="pill"><input type="radio" name="report-op" value="add" id="report-op-add"><span><b class="op-sign" aria-hidden="true">+</b>Addition</span></label>
+        <label class="pill"><input type="radio" name="report-op" value="subtract" id="report-op-subtract"><span><b class="op-sign" aria-hidden="true">−</b>Subtraction</span></label>
+        <label class="pill"><input type="radio" name="report-op" value="divide" id="report-op-divide"><span><b class="op-sign" aria-hidden="true">÷</b>Division</span></label>
         <label class="pill"><input type="radio" name="report-op" value="read" id="report-op-read"><span><b class="op-sign" aria-hidden="true">Aa</b>Reading</span></label>
       </div>
 

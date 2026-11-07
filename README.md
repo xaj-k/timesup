@@ -2,7 +2,7 @@
 
 Practice for kids: math facts and reading.
 
-- **Math facts**, for multiplication and addition. A question like **6 × 8** or **6 + 8** appears on a chalkboard at the top of the screen, and the player taps the one tile out of four that has the right answer.
+- **Math facts**, for multiplication, addition, subtraction and division. A question like **6 × 8**, **6 + 8**, **14 − 6** or **48 ÷ 6** appears on a chalkboard at the top of the screen, and the player taps the one tile out of four that has the right answer. Subtraction and division answers are always whole numbers from 0 to 12: never below zero, and nothing left over.
 - **Reading** the class's phonics homework out loud: sight words, sounds and sentences, one page at a time. The page listens and moves on when it hears the word, and a grown-up can always mark it right. See [Reading practice](#reading-practice).
 
 ## Play
@@ -18,14 +18,14 @@ These are for math. Reading has its own settings (see [Reading practice](#readin
 | Setting | Choices |
 | --- | --- |
 | Who's playing? | A first name, or Guest (guest rounds aren't saved) |
-| Practice | **× Multiplication** or **+ Addition** (or **Reading**). Each one remembers its own picks for the next two settings. |
-| Times tables (Numbers, for addition) | Any of 1 to 12 |
-| Multiplied by (Added to, for addition) | **The same numbers**: both numbers come from the ones you picked, so turning off 1 and 2 means no 1s or 2s at all. **A range**: each one you picked is multiplied by (or added to) every number in a range from 0 to 12, for whole tables like 7 × 1 to 7 × 10, or 7 + 0 to 7 + 10. |
+| Practice | **× Multiplication**, **+ Addition**, **− Subtraction** or **÷ Division** (or **Reading**). Each one remembers its own picks for the next two settings. |
+| Times tables (Numbers for addition, Take away for subtraction, Divide by for division) | Any of 1 to 12 |
+| Multiplied by (Added to for addition, Answers for subtraction and division) | **The same numbers**: both numbers come from the ones you picked, so turning off 1 and 2 means no 1s or 2s at all. For subtraction and division, that's the number taken away (or divided by) and the answer. **A range**: each one you picked is multiplied by (or added to) every number in a range from 0 to 12, for whole tables like 7 × 1 to 7 × 10, or 7 + 0 to 7 + 10. For subtraction and division, the range is the answers: taking away 7 with answers from 1 to 10 asks 8 − 7 up to 17 − 7, and dividing by 7 asks 7 ÷ 7 up to 70 ÷ 7. |
 | Focus | **Everything**: every fact comes up equally often. **Weak spots**: facts the player has been missing come up more often (see below). Needs a named player with some history. |
 | Mode | **Relaxed** (no timer) or **Beat the clock** (5, 10, 15, 20 or 30 seconds per question) |
 | Questions per round | 10, 20 or 30 |
 
-The chart on the setup screen shades every fact that can come up. Each question shows its two numbers in either order (6 × 8 or 8 × 6, 6 + 8 or 8 + 6). With Focus on Everything, no fact repeats until all of them have been asked. The browser remembers your settings for next time.
+The chart on the setup screen shades every fact that can come up. Multiplication and addition questions show their two numbers in either order (6 × 8 or 8 × 6, 6 + 8 or 8 + 6). Subtraction and division questions always start from the number you take from or divide (14 − 6, 48 ÷ 6), and their chart shows that number: row 6, column 8 is 14 − 6 = 8, or 48 ÷ 6 = 8. With Focus on Everything, no fact repeats until all of them have been asked. The browser remembers your settings for next time.
 
 After a wrong answer or when time runs out, the right tile turns green and the answer is shown before the next question. At the end of a round you get up to three stars, your best streak, your average answer time, and a list of the facts to practice.
 
@@ -63,20 +63,22 @@ The three wrong tiles are mistakes kids really make, so the right answer can't b
 
 - **Multiplying:** a neighboring fact (6 × 7 or 6 × 9 instead of 6 × 8), one or two off, ten off, or swapped digits (65 instead of 56).
 - **Adding:** counting one, two or three too far or not far enough, or ten off (5 or 25 instead of 15).
+- **Subtracting:** like adding, one, two or three too many or too few, or ten off (17 instead of 7 for 13 − 6).
+- **Dividing:** one, two or three off, which is a fact nearby in the same table (6 or 8 instead of 7 for 42 ÷ 6, the answers to 36 ÷ 6 and 48 ÷ 6), or the number you divide by (9 instead of 3 for 27 ÷ 9).
 
 ## Progress report
 
-Pick a player and tap **See progress** (on the setup screen or after a round). Multiplication and addition are looked at separately; when a player has done both, a switch at the top picks which one to show. The report shows:
+Pick a player and tap **See progress** (on the setup screen or after a round). Each operation is looked at separately; when a player has done more than one, a switch at the top picks which one to show. The report shows:
 
 - **Known by heart**: how many facts are known, and how that's changed over the last 3 rounds.
 - **Right lately** and **Answer time lately**: the last 3 rounds, compared with the rounds before them.
-- **What to practice next**: up to four suggestions. For example, which facts to practice, a mix-up that keeps happening ("Maya has picked 54 for 7 × 8 seven times. That's the answer to 6 × 9…"), the trickiest table, whether to try the timer or a shorter time limit, or when to add a new table. For addition it suggests the ways in kids learn, like near doubles (7 + 7 = 14, so 7 + 8 is one more) and making a ten (6 + 9 is the same as 5 + 10).
+- **What to practice next**: up to four suggestions. For example, which facts to practice, a mix-up that keeps happening ("Maya has picked 54 for 7 × 8 seven times. That's the answer to 6 × 9…"), the trickiest table, whether to try the timer or a shorter time limit, or when to add a new table. For addition it suggests the ways in kids learn, like near doubles (7 + 7 = 14, so 7 + 8 is one more) and making a ten (6 + 9 is the same as 5 + 10). For subtraction and division it suggests thinking of the fact they undo: 13 − 6 asks what to add to 6 to make 13, and 42 ÷ 6 asks what to multiply 6 by to make 42.
 - **Trickiest facts**: what each one's latest tries were like, and the wrong answer picked most.
-- **Times-table map**: every fact, colored by how well it's known. Tap a fact for details, or show the map as a list.
+- **Times-table map** (**Addition map**, **Subtraction map** or **Division map** for the others): every fact, colored by how well it's known. Tap a fact for details, or show the map as a list. Like the setup chart, the subtraction and division maps show the number each question starts from.
 - **Over time**: the share of right answers and the typical answer time for each day played (each round, until there are 3 days). Use the arrow keys to step through, or show it as a table.
 - **Recent rounds**.
 
-Each fact gets a level from its latest tries, in either order (6 × 8 and 8 × 6 count as one fact, and so do 6 + 8 and 8 + 6):
+Each fact gets a level from its latest tries, in either order (6 × 8 and 8 × 6 count as one fact, and so do 6 + 8 and 8 + 6). Subtraction and division facts keep their order: 48 ÷ 6 and 48 ÷ 8 are two facts, and so are 14 − 6 and 14 − 8. The levels:
 
 | Level | When |
 | --- | --- |
@@ -118,8 +120,8 @@ Each round is saved as one record:
 }
 ```
 
-- `operation` is `"multiply"` or `"add"`. Rounds saved before addition existed don't have it, and count as multiplication. Reading rounds have `"read"` (see below).
-- `a` and `b` are in the order they were shown, and `answer` is their product or sum.
+- `operation` is `"multiply"`, `"add"`, `"subtract"` or `"divide"`. Rounds saved before addition existed don't have it, and count as multiplication. Reading rounds have `"read"` (see below).
+- `a` and `b` are in the order they were shown, and `answer` is their product, sum, difference or quotient. For subtraction, `a` is the number you take from and `b` the number you take away. For division, `a` is the number divided and `b` the number you divide by.
 - `picked` is `null` when time ran out.
 - `ms` is how long the answer took.
 - `timeLimit` is seconds per question, with `0` meaning no timer.

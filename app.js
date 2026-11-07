@@ -84,7 +84,22 @@
   }
 
   const symbolOf = (operation) => Quiz.operationOf(operation).symbol;
-  const adding = () => settings.operation === 'add';
+
+  // Each operation's words: the setup screen's two labels, what one pick is
+  // called, how recent rounds name the picks, and the progress report's map.
+  const MATH_WORDS = {
+    multiply: { tables: 'Times tables', multiplyBy: 'Multiplied by', one: 'times table', picks: 'Tables', more: 'Try adding a table.', map: 'Times-table map' },
+    add: { tables: 'Numbers', multiplyBy: 'Added to', one: 'number', picks: 'Numbers', more: 'Try picking another number.', map: 'Addition map' },
+    subtract: { tables: 'Take away', multiplyBy: 'Answers', one: 'number', picks: 'Take away', more: 'Try picking another number.', map: 'Subtraction map' },
+    divide: { tables: 'Divide by', multiplyBy: 'Answers', one: 'number', picks: 'Divide by', more: 'Try picking another number.', map: 'Division map' },
+  };
+  const wordsFor = (operation) => MATH_WORDS[operation] || MATH_WORDS.multiply;
+
+  // The question and history key for the fact [t, m] in a chart's row t and column m.
+  function cellFact(t, m, operation) {
+    const { a, b } = Quiz.questionFor(t, m, operation);
+    return { a, b, key: Quiz.factKey(a, b, operation) };
+  }
 
   // ---------- saved settings (best effort: storage can be blocked) ----------
 
@@ -204,12 +219,18 @@
     buildChart($('mastery-chart'));
   }
 
-  // Fills a chart with products or sums.
+  // Fills a chart with products or sums. For subtraction and division, each
+  // cell shows the number its question starts from: 13 for 13 − 6, 42 for 42 ÷ 6.
   function labelChart(chart, operation) {
+    const showAnswers = Quiz.operationOf(operation).eitherOrder;
     for (const node of chart.children) {
       const { row, col } = node.dataset;
-      if (row === undefined && col === undefined) node.textContent = symbolOf(operation);
-      else if (row !== undefined && col !== undefined) node.textContent = Quiz.answerFor(Number(row), Number(col), operation);
+      if (row === undefined && col === undefined) {
+        node.textContent = symbolOf(operation);
+      } else if (row !== undefined && col !== undefined) {
+        const { a, b } = cellFact(Number(row), Number(col), operation);
+        node.textContent = showAnswers ? Quiz.answerFor(a, b, operation) : a;
+      }
     }
   }
 
@@ -219,7 +240,8 @@
     ).join('');
   }
 
-  // A times-table chart: rows are the tables, columns the numbers they're multiplied by.
+  // A times-table chart: rows are the tables (the numbers picked), columns the
+  // numbers they're multiplied by (or added to, or the answers). labelChart fills it in.
   function buildChart(chart) {
     chart.style.setProperty('--cols', Quiz.RANGE_MAX - Quiz.RANGE_MIN + 2);
     let html = '<span class="head corner">×</span>';
@@ -240,13 +262,13 @@
     let marked = 0;
     for (const node of $('chart').children) {
       const { row, col } = node.dataset;
-      if (row === undefined && col === undefined) continue; // the × corner
+      if (row === undefined && col === undefined) continue; // the corner, with the sign
       const rowOn = row === undefined || settings.tables.includes(Number(row));
       const colOn = col === undefined || columns.includes(Number(col));
       node.classList.toggle('is-on', rowOn && colOn);
       let weak = false;
       if (analysis && rowOn && colOn && row !== undefined && col !== undefined) {
-        const fact = analysis.facts.get(Quiz.factKey(Number(row), Number(col), settings.operation));
+        const fact = analysis.facts.get(cellFact(Number(row), Number(col), settings.operation).key);
         weak = Boolean(fact) && fact.level === 'practice';
       }
       node.classList.toggle('is-weak', weak);
@@ -257,17 +279,36 @@
 
   function multiplyHelp() {
     if (settings.multiplyBy === 'range') {
-      return adding()
-        ? 'Each number you picked is added to every number in this range, like 7 + 1 up to 7 + 10.'
-        : 'Each table you picked is multiplied by every number in this range, like 7 × 1 up to 7 × 10.';
+      return {
+        multiply: 'Each table you picked is multiplied by every number in this range, like 7 × 1 up to 7 × 10.',
+        add: 'Each number you picked is added to every number in this range, like 7 + 1 up to 7 + 10.',
+        subtract: 'Each number you picked is taken away from a bigger number, with answers in this range, like 8 − 7 = 1 up to 17 − 7 = 10.',
+        divide: 'Each number you picked divides a bigger number, with answers in this range, like 7 ÷ 7 = 1 up to 70 ÷ 7 = 10.',
+      }[settings.operation];
     }
     if (settings.tables.length === 1) {
       const t = settings.tables[0];
-      return adding()
-        ? `That's only ${t} + ${t}. To practice adding ${t} to other numbers, choose “A range”.`
-        : `That's only ${t} × ${t}. To practice the whole ${t} times table, choose “A range”.`;
+      return {
+        multiply: `That's only ${t} × ${t}. To practice the whole ${t} times table, choose “A range”.`,
+        add: `That's only ${t} + ${t}. To practice adding ${t} to other numbers, choose “A range”.`,
+        subtract: `That's only ${t + t} − ${t}. To practice taking ${t} away from more numbers, choose “A range”.`,
+        divide: `That's only ${t * t} ÷ ${t}. To practice dividing more numbers by ${t}, choose “A range”.`,
+      }[settings.operation];
     }
-    return `Both numbers in each question come from the ${adding() ? 'numbers' : 'tables'} you picked.`;
+    return {
+      multiply: 'Both numbers in each question come from the tables you picked.',
+      add: 'Both numbers in each question come from the numbers you picked.',
+      subtract: 'The number taken away and the answer both come from the numbers you picked.',
+      divide: 'The number you divide by and the answer both come from the numbers you picked.',
+    }[settings.operation];
+  }
+
+  // How to read the setup chart.
+  function chartNote(operation) {
+    if (operation === 'subtract') return 'Shaded facts can come up. Row 6, column 7 is 13 − 6 = 7.';
+    if (operation === 'divide') return 'Shaded facts can come up. Row 6, column 7 is 42 ÷ 6 = 7.';
+    const sign = symbolOf(operation);
+    return `Shaded facts can come up, in either order: 6 ${sign} 8 or 8 ${sign} 6.`;
   }
 
   // Weak spots needs a named player with some history.
@@ -300,7 +341,7 @@
     if (counts.learning || counts.new) {
       return `None of these need practice right now, so the round leans on facts that are still getting there${counts.new ? ' or not tried yet' : ''}.`;
     }
-    return `${player.name} knows all of these by heart! Try adding a table.`;
+    return `${player.name} knows all of these by heart! ${wordsFor(settings.operation).more}`;
   }
 
   function renderSetup() {
@@ -317,10 +358,10 @@
   }
 
   function renderMathSetup() {
-    $('tables-label').textContent = adding() ? 'Numbers' : 'Times tables';
-    $('multiply-label').textContent = adding() ? 'Added to' : 'Multiplied by';
-    const sign = symbolOf(settings.operation);
-    $('chart-note').textContent = `Shaded facts can come up, in either order: 6 ${sign} 8 or 8 ${sign} 6.`;
+    const words = wordsFor(settings.operation);
+    $('tables-label').textContent = words.tables;
+    $('multiply-label').textContent = words.multiplyBy;
+    $('chart-note').textContent = chartNote(settings.operation);
     labelChart($('chart'), settings.operation);
     for (const box of form.elements.table) box.checked = settings.tables.includes(Number(box.value));
     form.elements.multiplyBy.value = settings.multiplyBy;
@@ -353,7 +394,7 @@
       if (tricky) focusNote = ` (the ${tricky} that ${tricky === 1 ? 'needs practice comes' : 'need practice come'} up more)`;
     }
     $('summary').textContent = facts.length === 0
-      ? `Pick at least one ${adding() ? 'number' : 'times table'} to start.`
+      ? `Pick at least one ${wordsFor(settings.operation).one} to start.`
       : `${player ? `${player.name}: ` : ''}` +
         `${settings.count} ${Quiz.operationOf(settings.operation).name} questions from ` +
         `${facts.length === 1 ? 'just 1 fact' : `${facts.length} different facts`}${focusNote}, ` +
@@ -388,14 +429,14 @@
     renderSetupState();
   }
 
-  // Switching between multiplication and addition brings back that operation's own picks.
+  // Switching to another operation brings back that operation's own picks.
   function switchOperation(operation) {
     if (operation === settings.operation) return;
     settings = Quiz.sanitizeSettings({ ...settings, ...settings.selections[operation], operation });
     saveSettings();
   }
 
-  // Multiplication, addition or reading.
+  // Multiplication, addition, subtraction, division or reading.
   function chooseActivity(value) {
     if (value === 'read') {
       activity = 'read';
@@ -768,7 +809,7 @@
     historyChanged(record.playerId);
   }
 
-  // What one operation's history says (multiplication and addition are kept apart).
+  // What one operation's history says (each operation is kept apart).
   function analysisFor(id, operation = settings.operation) {
     const entry = id ? histories.get(id) : null;
     if (!entry || entry.status !== 'ready') return null;
@@ -776,7 +817,7 @@
     return entry.analyses[operation];
   }
 
-  // Totals across both operations, for the line under the player's name.
+  // Totals across every math operation, for the line under the player's name.
   function overallFor(id) {
     const entry = id ? histories.get(id) : null;
     if (!entry || entry.status !== 'ready') return null;
@@ -1309,7 +1350,7 @@
     const played = [...(overallFor(player.id) ? overallFor(player.id).operations : []), ...(read && read.totals.rounds ? ['read'] : [])];
     if (played.length && !played.includes(reportOp)) reportOp = played[0];
     $('report-ops').hidden = played.length < 2;
-    for (const op of ['multiply', 'add', 'read']) $(`report-op-${op}`).closest('.pill').hidden = !played.includes(op);
+    for (const op of [...Quiz.OPERATION_OPTIONS, 'read']) $(`report-op-${op}`).closest('.pill').hidden = !played.includes(op);
     $(`report-op-${reportOp}`).checked = true;
     const reads = reportOp === 'read';
     setReportKind(reads);
@@ -1445,8 +1486,9 @@
   }
 
   function factDetail(analysis, row, col) {
-    const fact = analysis.facts.get(Quiz.factKey(row, col, analysis.operation));
-    const name = `${row} ${symbolOf(analysis.operation)} ${col} = ${Quiz.answerFor(row, col, analysis.operation)}`;
+    const { a, b, key } = cellFact(row, col, analysis.operation);
+    const fact = analysis.facts.get(key);
+    const name = `${a} ${symbolOf(analysis.operation)} ${b} = ${Quiz.answerFor(a, b, analysis.operation)}`;
     if (!fact) return `${name}: not tried yet.`;
     let text = `${name}: ${LEVEL_NAMES[fact.level].toLowerCase()}. ${recentText(fact)}`;
     if (fact.typicalMs !== null) text += `, typically in ${secs(fact.typicalMs)} s`;
@@ -1459,12 +1501,12 @@
     const chart = $('mastery-chart');
     const counts = { mastered: 0, learning: 0, practice: 0, new: 0 };
     const seen = new Set();
-    $('map-title').textContent = analysis.operation === 'add' ? 'Addition map' : 'Times-table map';
+    $('map-title').textContent = wordsFor(analysis.operation).map;
     labelChart(chart, analysis.operation);
     for (const node of chart.children) {
       const { row, col } = node.dataset;
       if (row === undefined || col === undefined) continue;
-      const key = Quiz.factKey(Number(row), Number(col), analysis.operation);
+      const { key } = cellFact(Number(row), Number(col), analysis.operation);
       const fact = analysis.facts.get(key);
       const level = fact ? fact.level : 'new';
       node.className = `cell lv-${level}`;
@@ -1483,9 +1525,11 @@
     $('map-detail').textContent = 'Tap or point at a fact to see how it’s going.';
 
     // The same map as a list, for screen readers and anyone who'd rather read it.
+    // Subtraction and division go row by row, like the map: 8 − 7, 9 − 7, and so on.
+    const byRow = !Quiz.operationOf(analysis.operation).eitherOrder;
     const groups = Insights.LEVELS.filter((level) => level !== 'new').map((level) => {
       const facts = [...analysis.facts.values()].filter((f) => f.level === level)
-        .sort((x, y) => x.a - y.a || x.b - y.b)
+        .sort((x, y) => (byRow ? x.b - y.b || x.a - y.a : x.a - y.a || x.b - y.b))
         .map((f) => `${f.a} ${symbolOf(f.operation)} ${f.b}`);
       const line = element('p', '');
       line.append(element('strong', '', `${LEVEL_NAMES[level]} (${facts.length}): `), document.createTextNode(facts.length ? facts.join(', ') : 'none yet'));
@@ -1811,12 +1855,14 @@
     $('round-list').replaceChildren(...recent.map((r) => {
       const s = r.settings;
       const right = r.answers.filter((x) => x.right).length;
-      const what = [
-        s.multiplyBy === 'range' && s.from !== null && s.to !== null
+      // "Tables 3–10", "7 × 1–10", "Take away 7, answers 1–10"
+      let picks = `${wordsFor(s.operation).picks} ${tablesText(s.tables)}`;
+      if (s.multiplyBy === 'range' && s.from !== null && s.to !== null) {
+        picks = Quiz.operationOf(s.operation).eitherOrder
           ? `${tablesText(s.tables)} ${symbolOf(s.operation)} ${s.from}–${s.to}`
-          : `${s.operation === 'add' ? 'Numbers' : 'Tables'} ${tablesText(s.tables)}`,
-        s.timeLimit ? `${s.timeLimit} s a question` : 'Relaxed',
-      ];
+          : `${picks}, answers ${s.from}–${s.to}`;
+      }
+      const what = [picks, s.timeLimit ? `${s.timeLimit} s a question` : 'Relaxed'];
       if (s.focus === 'weak') what.push('Weak spots');
       if (!r.finished) what.push(`stopped after ${r.answers.length}`);
       const item = element('li', 'round-row');

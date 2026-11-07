@@ -189,7 +189,7 @@
     same(s.selections.add.tables, [1, 2, 3], 'addition picks kept with the operation');
     same([s.selections.multiply.tables, s.selections.multiply.multiplyBy, s.selections.multiply.from, s.selections.multiply.to], [[6, 7, 8], 'range', 2, 9], 'multiplication picks kept');
     same(Quiz.sanitizeSettings({}).operation, 'multiply', 'multiplication by default');
-    same(Quiz.sanitizeSettings({ operation: 'divide' }).operation, 'multiply', 'an unknown operation falls back to multiplication');
+    same(Quiz.sanitizeSettings({ operation: 'power' }).operation, 'multiply', 'an unknown operation falls back to multiplication');
     same(Quiz.sanitizeSettings({ tables: [4] }).selections.add.tables, Quiz.DEFAULT_SETTINGS.tables, 'addition starts with the default numbers');
   });
 
@@ -366,6 +366,233 @@
     same(slow(6, 4).weight, 6, 'right but slow comes up more than right and quick');
     const counts = Insights.focusCounts(Insights.analyze(rounds), [[7, 8], [3, 3], [9, 9]]);
     same(counts, { mastered: 0, learning: 1, practice: 1, new: 1 }, 'levels of the facts in play');
+  });
+
+  // ---------- subtraction and division ----------
+
+  const DIFFERENT = ['subtract', 'divide']; // the two operations where order matters
+  const sign = (operation) => Quiz.OPERATIONS[operation].symbol;
+  // A question as shown, from a fact [t, m]: "13−6" for taking 6 away with answer 7.
+  const shown = (operation, t, m) => {
+    const { a, b } = Quiz.questionFor(t, m, operation);
+    return `${a}${sign(operation)}${b}`;
+  };
+  // A saved answer to the question a fact [t, m] makes; the right answer is m.
+  const answered = (operation, t, m, picked, ms = 2000) => {
+    const { a, b } = Quiz.questionFor(t, m, operation);
+    return { a, b, answer: m, choices: [], picked, right: picked === m, ms };
+  };
+
+  test('subtraction and division: four different whole-number choices, one right, for every fact', () => {
+    same(sign('subtract'), '−', 'subtraction uses the real minus sign');
+    for (const operation of DIFFERENT) {
+      for (let seed = 1; seed <= 30; seed++) {
+        const random = seeded(100 + seed);
+        for (let t = 1; t <= 12; t++) {
+          for (let m = 0; m <= 12; m++) {
+            const { a, b } = Quiz.questionFor(t, m, operation);
+            const answer = Quiz.answerFor(a, b, operation);
+            const choices = Quiz.makeChoices(a, b, random, [], operation);
+            const label = `${a} ${sign(operation)} ${b} gave ${choices}`;
+            same(answer, m, `the answer to ${a} ${sign(operation)} ${b}`);
+            check(choices.length === 4 && new Set(choices).size === 4, `${label}: needs 4 different choices`);
+            check(choices.filter((c) => c === answer).length === 1, `${label}: right answer must appear once`);
+            check(choices.every((c) => Number.isInteger(c) && c >= 0), `${label}: choices must be whole numbers, 0 or more`);
+          }
+        }
+      }
+    }
+  });
+
+  test('subtraction slips are 1, 2, 3 or 10 off; division slips are 1, 2 or 3 off, or the number you divide by', () => {
+    const random = seeded(31);
+    for (let k = 0; k < 10; k++) {
+      for (let t = 1; t <= 12; t++) {
+        for (let m = 0; m <= 12; m++) {
+          const s = Quiz.questionFor(t, m, 'subtract');
+          for (const c of Quiz.makeChoices(s.a, s.b, random, [], 'subtract')) {
+            if (c !== m) check([1, 2, 3, 10].includes(Math.abs(c - m)), `${s.a} − ${s.b}: ${c} is not a taking-away slip`);
+          }
+          const d = Quiz.questionFor(t, m, 'divide');
+          for (const c of Quiz.makeChoices(d.a, d.b, random, [], 'divide')) {
+            if (c !== m) check([1, 2, 3].includes(Math.abs(c - m)) || c === d.b, `${d.a} ÷ ${d.b}: ${c} is not a dividing slip`);
+          }
+        }
+      }
+    }
+    let divisor = 0;
+    for (let i = 0; i < 200; i++) if (Quiz.makeChoices(27, 9, random, [], 'divide').includes(9)) divisor += 1;
+    check(divisor > 100, `9, the number you divide by, came up for 27 ÷ 9 in ${divisor} of 200 questions`);
+    const seen = [0, 0, 0, 0];
+    for (let i = 0; i < 400; i++) seen[Quiz.makeChoices(42, 6, random, [], 'divide').indexOf(7)] += 1;
+    check(seen.every((n) => n > 60), `right answer positions for 42 ÷ 6 were ${seen}`);
+    check(Quiz.isSlip(27, 9, 9, 'divide') && Quiz.isSlip(42, 6, 4, 'divide') && !Quiz.isSlip(42, 6, 17, 'divide') && !Quiz.isSlip(42, 6, 7, 'divide'), 'isSlip for dividing');
+    check(Quiz.isSlip(13, 6, 17, 'subtract') && Quiz.isSlip(13, 6, 4, 'subtract') && !Quiz.isSlip(13, 6, 13, 'subtract') && !Quiz.isSlip(24, 12, 21, 'subtract'), 'isSlip for taking away (no swapped digits)');
+    check(Quiz.makeChoices(13, 6, random, [10], 'subtract').includes(10) && !Quiz.makeChoices(13, 6, random, [12], 'subtract').includes(12), 'a slip picked before comes back, and only a slip');
+  });
+
+  test('division always divides evenly, and taking away never goes below zero', () => {
+    for (const operation of DIFFERENT) {
+      const settings = { operation, tables: Quiz.TABLES.slice(), multiplyBy: 'range', from: 0, to: 12, count: 30 };
+      for (let seed = 1; seed <= 20; seed++) {
+        for (const q of Quiz.createRound(settings, seeded(seed))) {
+          const label = `${q.a} ${sign(operation)} ${q.b} = ${q.answer}`;
+          if (operation === 'divide') check(q.b >= 1 && q.a % q.b === 0, `${label} doesn't divide evenly`);
+          else check(q.a >= q.b, `${label} goes below zero`);
+          check(Number.isInteger(q.answer) && q.answer >= 0 && q.answer <= 12, `${label}: the answer must be a whole number from 0 to 12`);
+          same(q.answer, Quiz.answerFor(q.a, q.b, operation), `the answer to ${label}`);
+          check(q.choices.includes(q.answer), `${label}: right answer missing from the choices`);
+        }
+      }
+    }
+  });
+
+  test('subtraction and division facts: the numbers picked, with the same numbers or a range of answers', () => {
+    const facts = (operation, settings) => Quiz.factsFor({ operation, ...settings }).map(([t, m]) => shown(operation, t, m));
+    same(facts('subtract', { tables: [6, 7], multiplyBy: 'same' }), ['12−6', '13−6', '13−7', '14−7'], 'take away 6 and 7, answers 6 and 7');
+    same(facts('divide', { tables: [6, 7], multiplyBy: 'same' }), ['36÷6', '42÷6', '42÷7', '49÷7'], 'divide by 6 and 7, answers 6 and 7');
+    same(facts('subtract', { tables: [7], multiplyBy: 'range', from: 1, to: 10 }), ['8−7', '9−7', '10−7', '11−7', '12−7', '13−7', '14−7', '15−7', '16−7', '17−7'], 'take away 7, answers 1 to 10');
+    same(facts('divide', { tables: [7], multiplyBy: 'range', from: 0, to: 3 }), ['0÷7', '7÷7', '14÷7', '21÷7'], 'divide by 7, answers 0 to 3');
+    same(Quiz.factsFor({ operation: 'divide', tables: Quiz.TABLES.slice(), multiplyBy: 'range', from: 0, to: 12 }).length, 156, 'every pair is its own fact: 12 × 13');
+    same(Quiz.factsFor({ operation: 'subtract', tables: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], multiplyBy: 'same' }).length, 100, 'take away 1 to 10, answers 1 to 10');
+    same(Quiz.factsFor({ tables: [6, 7], multiplyBy: 'same' }).length, 3, 'multiplying still counts 6 × 7 and 7 × 6 once');
+  });
+
+  test('subtraction and division keys keep the order shown', () => {
+    same([Quiz.factKey(48, 6, 'divide'), Quiz.factKey(48, 8, 'divide')], ['48÷6', '48÷8'], '48 ÷ 6 and 48 ÷ 8 are two facts');
+    same([Quiz.factKey(14, 6, 'subtract'), Quiz.factKey(14, 8, 'subtract')], ['14−6', '14−8'], '14 − 6 and 14 − 8 are two facts');
+    check(Quiz.factKey(6, 8) === Quiz.factKey(8, 6) && Quiz.factKey(6, 8, 'add') === Quiz.factKey(8, 6, 'add'), 'multiplying and adding still go either way');
+    same([Quiz.questionFor(6, 8, 'subtract'), Quiz.questionFor(6, 8, 'divide'), Quiz.questionFor(6, 8, 'add')], [{ a: 14, b: 6 }, { a: 48, b: 6 }, { a: 6, b: 8 }], 'the question each fact makes');
+    for (const operation of DIFFERENT) {
+      const questions = Quiz.createRound({ operation, tables: [6], multiplyBy: 'range', from: 8, to: 8, count: 10 }, seeded(41));
+      check(questions.every((q) => q.b === 6 && q.answer === 8), `${operation}: always starts from the number you take from or divide`);
+    }
+  });
+
+  test('subtraction and division weak-spots rounds stay inside the chosen facts', () => {
+    for (const operation of DIFFERENT) {
+      const settings = { operation, tables: [6, 7, 8], multiplyBy: 'range', from: 2, to: 9, count: 20 };
+      const keyOf = (t, m) => {
+        const { a, b } = Quiz.questionFor(t, m, operation);
+        return Quiz.factKey(a, b, operation);
+      };
+      const allowed = new Set(Quiz.factsFor(settings).map(([t, m]) => keyOf(t, m)));
+      const tricky = keyOf(7, 8); // 15 − 7 or 56 ÷ 7
+      const slip = operation === 'divide' ? 7 : 9;
+      const needOf = (t, m) => (keyOf(t, m) === tricky ? { weight: 20, maxUses: 2, slips: [slip] } : { weight: 1, maxUses: 1 });
+      const random = seeded(51);
+      let trickyAsked = 0;
+      for (let r = 0; r < 100; r++) {
+        const questions = Quiz.createFocusRound(settings, needOf, random);
+        same(questions.length, 20, 'question count');
+        for (const q of questions) {
+          const key = Quiz.factKey(q.a, q.b, operation);
+          check(allowed.has(key), `${key} is outside the chosen facts`);
+          check(q.answer >= 2 && q.answer <= 9 && q.choices.includes(q.answer), `${key}: answer ${q.answer} and choices ${q.choices}`);
+          if (key === tricky) {
+            trickyAsked += 1;
+            check(q.choices.includes(slip), `${key}: ${slip}, picked before, should come back as a choice`);
+          }
+        }
+      }
+      check(trickyAsked / 100 > 1.5, `${tricky} came up ${trickyAsked / 100} times a round`);
+    }
+  });
+
+  test('settings keep separate picks for all four operations', () => {
+    const s = Quiz.sanitizeSettings({
+      operation: 'divide', tables: [6, 7], multiplyBy: 'range', from: 0, to: 12,
+      selections: { multiply: { tables: [2, 3] }, add: { tables: [4] }, subtract: { tables: [9, 10], multiplyBy: 'range', from: 1, to: 5 } },
+    });
+    same(s.operation, 'divide', 'division is kept');
+    same(Object.keys(s.selections), ['multiply', 'add', 'subtract', 'divide'], 'picks for every operation');
+    same(s.selections.divide, { tables: [6, 7], multiplyBy: 'range', from: 0, to: 12 }, 'division picks are the current ones');
+    same(s.selections.subtract, { tables: [9, 10], multiplyBy: 'range', from: 1, to: 5 }, 'subtraction picks kept');
+    same([s.selections.multiply.tables, s.selections.add.tables], [[2, 3], [4]], 'multiplication and addition picks kept');
+    same(Quiz.sanitizeSettings({ operation: 'subtract' }).selections.divide.tables, Quiz.DEFAULT_SETTINGS.tables, 'division starts with the default numbers');
+  });
+
+  test('subtraction and division history: facts keep their order, and bad saved answers are skipped', () => {
+    const minus = (t, m, picked) => answered('subtract', t, m, picked);
+    const share = (t, m, picked) => answered('divide', t, m, picked);
+    const rounds = [
+      roundOf(on(0), [minus(6, 7, 7), minus(7, 6, 5), minus(6, 8, 9), minus(7, 6, 5), minus(7, 2, 2)], { operation: 'subtract', tables: [6, 7] }),
+      roundOf(on(1), [share(6, 8, 8), share(8, 6, 7), share(8, 6, 7), share(9, 3, 9), share(4, 2, 2)], { operation: 'divide', tables: [4, 6, 8, 9] }),
+      // Answers the quiz couldn't have asked, and one saved with the wrong answer.
+      roundOf(on(2), [
+        { a: 5, b: 7, picked: 0 }, { a: 30, b: 6, picked: 24 }, { a: 13, b: 0, picked: 13 }, { a: 13.5, b: 6, picked: 7 }, { a: '13', b: 6, picked: 7 },
+        { a: 14, b: 6, answer: 9, picked: 9, right: true, ms: 1500 },
+      ], { operation: 'subtract' }),
+      roundOf(on(2, 5), [
+        { a: 50, b: 6, picked: 8 }, { a: 48, b: 0, picked: 0 }, { a: 156, b: 12, picked: 13 }, { a: -12, b: 6, picked: -2 }, { a: 6, b: 13, picked: 0 },
+        share(7, 0, 0),
+      ], { operation: 'divide' }),
+    ];
+    const subs = Insights.analyze(rounds, START + 2 * DAY, 'subtract');
+    const divs = Insights.analyze(rounds, START + 2 * DAY, 'divide');
+    same([...subs.facts.keys()], ['13−6', '13−7', '14−6', '9−7'], 'subtraction facts, as shown');
+    same([...divs.facts.keys()], ['48÷6', '48÷8', '27÷9', '8÷4', '0÷7'], 'division facts, as shown');
+    const f = subs.facts.get('13−7');
+    same([f.a, f.b, f.answer, f.level, f.slip], [13, 7, 6, 'practice', { value: 5, count: 2 }], '13 − 7: kept as shown, missed twice with 5');
+    const g = divs.facts.get('48÷8');
+    same([g.a, g.b, g.answer, g.level, g.slip], [48, 8, 6, 'practice', { value: 7, count: 2 }], '48 ÷ 8: kept as shown, missed twice with 7');
+    same(divs.facts.get('27÷9').slip, { value: 9, count: 1 }, 'the number divided by, picked for 27 ÷ 9');
+    same(subs.facts.get('14−6').tries.map((t) => t.right), [false, false], 'the answer is worked out again, not taken from the record');
+    same([subs.totals.rounds, subs.totals.questions, divs.totals.rounds, divs.totals.questions], [2, 6, 2, 6], 'rounds and questions');
+    // A table is the number taken away or divided by, not the number you start from.
+    const table = (analysis, n) => analysis.tables.find((t) => t.table === n).tried;
+    same([table(subs, 6), table(subs, 7), table(subs, 9)], [2, 2, 0], 'take away 6, take away 7, and no take away 9');
+    same([table(divs, 4), table(divs, 8), table(divs, 6)], [1, 1, 1], 'divide by 4, by 8 (not 8 ÷ 4), and by 6');
+    same(Insights.overall(rounds), { rounds: 4, questions: 12, right: 5, operations: ['subtract', 'divide'] }, 'totals across both');
+    // Weak spots look facts up from the setup screen's pairs.
+    same(Insights.needFinder(subs)(7, 6), { weight: 20, maxUses: 2, slips: [5] }, '13 − 7 needs practice, and 5 comes back');
+    same(Insights.needFinder(divs)(8, 6), { weight: 20, maxUses: 2, slips: [7] }, '48 ÷ 8 needs practice, and 7 comes back');
+    same(Insights.needFinder(divs)(6, 8).weight, 2, '48 ÷ 6 was right, so it is a different fact from 48 ÷ 8');
+    same(Insights.focusCounts(subs, [[6, 7], [7, 6], [6, 8], [9, 9]]), { mastered: 0, learning: 1, practice: 2, new: 1 }, 'levels of the facts in play');
+    same(Insights.analyze(rounds, START + 2 * DAY).totals.rounds, 0, 'multiplication has none of these rounds');
+  });
+
+  test('subtraction and division: wrong answers explained', () => {
+    same(Insights.slipText(13, 6, 8, 'subtract'), '8, 1 too many', 'one too many');
+    same(Insights.slipText(13, 6, 4, 'subtract'), '4, 3 too few', 'three too few');
+    same(Insights.slipText(13, 6, 17, 'subtract'), '17, ten too many', 'ten off');
+    same(Insights.slipText(27, 9, 9, 'divide'), '9, the number you divide by', 'the number you divide by');
+    same(Insights.slipText(42, 6, 6, 'divide'), '6, the number you divide by', 'the number you divide by, next to the answer');
+    same(Insights.slipText(42, 6, 9, 'divide'), '9, 2 too many', 'a fact nearby in the same table');
+  });
+
+  test('subtraction and division advice, in each one’s own words', () => {
+    const facts = (t) => [1, 2, 3, 4].map((m) => [t, m]);
+    // Taking away 7 (or dividing by 7): each fact right once in three rounds, missed with one too many.
+    const tricky = (operation) => [0, 1, 2].map((day) => roundOf(on(day),
+      facts(7).map(([t, m]) => answered(operation, t, m, (m + day) % 3 === 0 ? m : m + 1)), { operation, tables: [7] }));
+    // Taking away 3 and 4 (or dividing by them), answers 1 to 5: every one quick and right.
+    const known = (operation) => [0, 1, 2].map((day) => roundOf(on(day),
+      [3, 4].flatMap((t) => [1, 2, 3, 4, 5].map((m) => answered(operation, t, m, m, 1500))), { operation, tables: [3, 4] }));
+
+    let tips = Insights.advice(Insights.analyze(tricky('subtract'), START + 2 * DAY, 'subtract'), 'Leo');
+    check(tips[0].startsWith('Practice 8 − 7, '), `first tip: ${tips[0]}`);
+    check(tips.includes('Leo has picked 2 for 8 − 7 twice. Think addition: 8 − 7 asks what to add to 7 to make 8, and 7 + 1 = 8.'), `think-addition tip missing: ${tips}`);
+    check(tips.includes('Taking away 7 is the trickiest lately (33% right). A few rounds of taking away just 7 can help.'), `trickiest tip missing: ${tips}`);
+    tips = Insights.advice(Insights.analyze(known('subtract'), START + 2 * DAY, 'subtract'), 'Leo');
+    check(tips.includes('Leo knows most of the facts practiced so far by heart. Ready for something new: try taking away 5 and 6 too.'), `ready tip missing: ${tips}`);
+    check(tips.includes('Strong on taking away 3 and 4: nearly every fact known by heart.'), `strong tip missing: ${tips}`);
+
+    tips = Insights.advice(Insights.analyze(tricky('divide'), START + 2 * DAY, 'divide'), 'Leo');
+    check(tips[0].startsWith('Practice 7 ÷ 7, '), `first tip: ${tips[0]}`);
+    check(tips.includes('Leo has picked 2 for 7 ÷ 7 twice. Think multiplication: 7 ÷ 7 asks what to multiply 7 by to make 7, and 7 × 1 = 7.'), `think-multiplication tip missing: ${tips}`);
+    check(tips.includes('Dividing by 7 is the trickiest lately (33% right). A few rounds of dividing by just 7 can help.'), `trickiest tip missing: ${tips}`);
+    tips = Insights.advice(Insights.analyze(known('divide'), START + 2 * DAY, 'divide'), 'Leo');
+    check(tips.includes('Leo knows most of the facts practiced so far by heart. Ready for something new: try dividing by 5 and 6 too.'), `ready tip missing: ${tips}`);
+    check(tips.includes('Strong on dividing by 3 and 4: nearly every fact known by heart.'), `strong tip missing: ${tips}`);
+
+    // Picking the number you divide by, again and again.
+    const divisor = [0, 1].map((day) => roundOf(on(day), [answered('divide', 9, 3, 9)], { operation: 'divide', tables: [9] }));
+    tips = Insights.advice(Insights.analyze(divisor, START + 1 * DAY, 'divide'), 'Leo');
+    check(tips.includes("Leo has picked 9 for 27 ÷ 9 twice. That's the number you divide by. Think multiplication: 27 ÷ 9 asks what to multiply 9 by to make 27, and 9 × 3 = 27."), `divisor tip missing: ${tips}`);
+    const take = [0, 1].map((day) => roundOf(on(day), [answered('subtract', 6, 7, 8)], { operation: 'subtract', tables: [6] }));
+    tips = Insights.advice(Insights.analyze(take, START + 1 * DAY, 'subtract'), 'Leo');
+    check(tips.includes('Leo has picked 8 for 13 − 6 twice. Think addition: 13 − 6 asks what to add to 6 to make 13, and 6 + 7 = 13.'), `13 − 6 tip missing: ${tips}`);
   });
 
   // ---------- reading ----------
